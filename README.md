@@ -10,7 +10,17 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/shidesheng0218/kimi-guard/ci.yml?style=flat-square&label=CI)](/.github/workflows/ci.yml)
 
+<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg" alt="kimi-guard banner" width="100%"/>
+
 **[English](README.md) · [中文文档](docs/README.zh-CN.md)**
+
+<div align="center">
+
+![kimi-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif)
+
+*Real terminal session: install → verify → a supervised run where the circuit breaker catches a looping tool call → live status & budget panels. Recorded with [vhs](https://github.com/charmbracelet/vhs) from actual commands ([demo.tape](assets/demo.tape)).*
+
+</div>
 
 </div>
 
@@ -190,6 +200,42 @@ subagentWeight = 5      # ~requests each dispatched subagent costs
 ```
 
 ## How it works
+
+```mermaid
+flowchart LR
+    subgraph KIMI["Kimi Code CLI"]
+        A["tool call"] -->|"hook event / Wire msg"| B
+    end
+    subgraph GUARD["kimi-guard"]
+        B["Normalization layer<br/>schema-variant tolerant<br/>+ output hashing"] --> C["Analyzers (pure functions)<br/>repeat · cycle · no-gain · churn<br/>no-progress · near-repeat"]
+        M["Budget engine<br/>5h/weekly windows<br/>burn-rate projection"] --> C
+        C --> D["Policy engine<br/>findings → action<br/>+ kill switch"]
+    end
+    D -->|"allow"| E["exit 0"]
+    D -->|"warn"| F["context hint (stdout/steer)<br/>agent self-corrects first"]
+    D -->|"block"| G["exit 2 / HookRequest<br/>reason fed back to model"]
+    D -->|"kill"| H["cancel + checkpoint<br/>summarize and stop"]
+```
+
+The completion gate adds a claim-vs-evidence loop on top:
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant G as kimi-guard
+    participant DB as local evidence (state.db)
+    A->>A: runs tools (Shell, edits...)
+    A->>G: turn ends, claims "all tests pass"
+    G->>DB: any successful test/build/lint command?
+    alt evidence found
+        G->>A: accept ✅
+    else no evidence
+        opt LLM veto enabled (fail-closed, budget-capped)
+            G->>G: one vote: VETO yes/no
+        end
+        G->>A: corrective round — "actually run verification"
+    end
+```
 
 ```
 Kimi Code CLI ──hook event──▶ kguard hook <event> (JSON on stdin)

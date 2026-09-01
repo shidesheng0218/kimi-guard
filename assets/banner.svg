@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="260" viewBox="0 0 1100 260" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b2e"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="1100" height="260" rx="14" fill="url(#bg)"/>
+  <rect x="1" y="1" width="1098" height="258" rx="13" fill="none" stroke="#30363d" stroke-width="2"/>
+
+  <g transform="translate(52,64)">
+    <path d="M0 22 L0 52 C0 74 14 92 34 100 C54 92 68 74 68 52 L68 22 L34 6 Z"
+          fill="url(#shield)" stroke="#a5b4fc" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M20 52 L31 64 L50 40" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="160" y="112" font-size="54" font-weight="800" fill="#e6edf3">kimi-guard</text>
+  <text x="162" y="152" font-size="19" fill="#8b949e">An orchestration guard layer for Kimi Code CLI —</text>
+  <text x="162" y="178" font-size="19" fill="#8b949e">stop runaway agent loops before they burn your quota.</text>
+
+  <g font-size="15" fill="#c9d1d9">
+    <rect x="162" y="196" width="196" height="32" rx="16" fill="#1f2739" stroke="#3b82f6" stroke-opacity="0.55"/>
+    <text x="180" y="217">🧠 13 loop detectors</text>
+    <rect x="370" y="196" width="180" height="32" rx="16" fill="#1f2739" stroke="#a855f7" stroke-opacity="0.55"/>
+    <text x="386" y="217">🎯 mid-turn steer</text>
+    <rect x="562" y="196" width="196" height="32" rx="16" fill="#1f2739" stroke="#22d3ee" stroke-opacity="0.55"/>
+    <text x="578" y="217">🚦 quota-aware gates</text>
+    <rect x="770" y="196" width="204" height="32" rx="16" fill="#1f2739" stroke="#f59e0b" stroke-opacity="0.55"/>
+    <text x="786" y="217">💾 checkpoint / resume</text>
+  </g>
+</svg>

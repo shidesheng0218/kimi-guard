@@ -10,6 +10,18 @@
 
 ---
 
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg" alt="kimi-guard banner" width="100%"/>
+
+![kimi-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif)
+
+*真实终端演示：安装 → 自检 → 受监督运行中熔断器拦下一个循环调用 → 实时状态与预算面板。由 [vhs](https://github.com/charmbracelet/vhs) 从真实命令录制（[demo.tape](../assets/demo.tape)）。*
+
+</div>
+
+---
+
 ## 为什么需要
 
 Kimi Code CLI 是优秀的开源编码 Agent，但它的子代理系统存在已知可靠性缺口（见上游 issue [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142)、[#2368](https://github.com/MoonshotAI/kimi-cli/issues/2368)、[#2578](https://github.com/MoonshotAI/kimi-cli/issues/2578)）：
@@ -155,6 +167,42 @@ subagentWeight = 5      # 每个派发子代理的请求折算
 ```
 
 ## 工作原理
+
+```mermaid
+flowchart LR
+    subgraph KIMI["Kimi Code CLI"]
+        A["工具调用"] -->|"hook 事件 / Wire 消息"| B
+    end
+    subgraph GUARD["kimi-guard"]
+        B["归一化层<br/>schema 变体容忍<br/>+ 输出哈希"] --> C["分析器（纯函数）<br/>重复 · 周期 · 无增益 · 抖动<br/>无进展 · 近似重复"]
+        M["预算引擎<br/>5h/周窗口<br/>燃烧率外推"] --> C
+        C --> D["策略引擎<br/>发现 → 动作<br/>+ 保险丝"]
+    end
+    D -->|"放行"| E["exit 0"]
+    D -->|"警告"| F["上下文提示（stdout/steer）<br/>Agent 先自我纠正"]
+    D -->|"阻断"| G["exit 2 / HookRequest<br/>原因回传模型"]
+    D -->|"全停"| H["cancel + 快照<br/>总结收尾"]
+```
+
+完工闸门在其上叠加一个"声明 vs 证据"的闭环：
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant G as kimi-guard
+    participant DB as 本地证据（state.db）
+    A->>A: 执行工具（Shell、编辑…）
+    A->>G: 轮次结束，声称“测试全部通过”
+    G->>DB: 会话里有成功的 test/build/lint 命令吗？
+    alt 有证据
+        G->>A: 接收 ✅
+    else 没有证据
+        opt 开启 LLM 否决票（fail-closed，会话额度上限）
+            G->>G: 投一票：VETO yes/no
+        end
+        G->>A: 纠正轮——“真的去跑验证”
+    end
+```
 
 ```
 Kimi Code CLI ──hook 事件──▶ kguard hook <event>（stdin 收 JSON）
