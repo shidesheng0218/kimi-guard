@@ -114,7 +114,9 @@ kguard run "重构 auth 模块并让测试通过" \
 ```toml
 [repeat]                # 精确/近似重复
 maxRepeats = 3
+warnAt = 2              # 硬阻断前的软警告（注入上下文）
 windowMinutes = 30
+# exemptPatterns = [...] # 对 JSON 序列化参数匹配的正则；命中则永不触发重复拦截（轮询命令用）
 
 [cycle]                 # A→B→A→B 振荡检测
 enabled = true
@@ -146,6 +148,7 @@ blockAt = 10
 enabled = true
 blockOnNoEvidence = false  # hooks 路径：有编辑落盘但零验证时阻断 Stop
 evidenceWindowMinutes = 60
+shellTools = ["Shell", "Bash"]  # 执行 shell 命令的工具名（证据在这些工具的调用历史里找）
 
 [verify.veto]           # 可选的误报抑制投票（默认关，关着就是零依赖）
 enabled = false         # 需在环境变量设置 KIMI_GUARD_VETO_API_KEY（任何 OpenAI 兼容端点）

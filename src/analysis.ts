@@ -27,36 +27,76 @@ function fmtEvidence(r: CallRow): string {
 }
 
 /**
+ * Does the proposed call match a user-configured exemption pattern? Exempt
+ * calls (e.g. polling commands like `git status`) never trigger repeat
+ * findings. Patterns are matched against the JSON-serialized arguments.
+ */
+export function isRepeatExempt(proposed: { tool: string; args?: unknown }, cfg: GuardConfig): boolean {
+  if (cfg.repeat.exemptPatterns.length === 0) return false;
+  let text: string;
+  try {
+    text = JSON.stringify(proposed.args ?? {});
+  } catch {
+    text = String(proposed.args);
+  }
+  for (const p of cfg.repeat.exemptPatterns) {
+    try {
+      if (new RegExp(p).test(text)) return true;
+    } catch {
+      /* invalid pattern — skip */
+    }
+  }
+  return false;
+}
+
+/**
  * Exact / near-duplicate repetition of (tool, args) signature.
+ * Warns first (soft nudge), blocks at the repeat threshold.
  */
 export function analyzeRepetition(
   history: CallRow[],
-  proposed: { tool: string; argsHash: string },
+  proposed: { tool: string; argsHash: string; args?: unknown },
   cfg: GuardConfig,
   now: number,
 ): Finding[] {
   if (!cfg.repeat.enabled) return allow;
   const watched = cfg.repeat.watch.includes(proposed.tool) || proposed.tool in cfg.repeat.thresholds;
   if (!watched) return allow;
+  if (isRepeatExempt(proposed, cfg)) return allow;
   const threshold = cfg.repeat.thresholds[proposed.tool] ?? cfg.repeat.maxRepeats;
   const since = now - cfg.repeat.windowMinutes * 60_000;
   const n = history.filter(
     (r) => r.tool_name === proposed.tool && r.args_hash === proposed.argsHash && r.ts >= since,
   ).length;
-  if (n < threshold) return allow;
-  return [
-    {
-      kind: "repeat",
-      severity: "block",
-      tool: proposed.tool,
-      message:
-        `"${proposed.tool}" has already been called ${n} times with identical arguments in the last ` +
-        `${cfg.repeat.windowMinutes} minutes. The previous results are already in context — use them ` +
-        `instead of re-running. If a retry is genuinely required, change the arguments or state why ` +
-        `the previous result is insufficient.`,
-      evidence: `signature count=${n}, threshold=${threshold}`,
-    },
-  ];
+  if (n >= threshold) {
+    return [
+      {
+        kind: "repeat",
+        severity: "block",
+        tool: proposed.tool,
+        message:
+          `"${proposed.tool}" has already been called ${n} times with identical arguments in the last ` +
+          `${cfg.repeat.windowMinutes} minutes. The previous results are already in context — use them ` +
+          `instead of re-running. If a retry is genuinely required, change the arguments or state why ` +
+          `the previous result is insufficient.`,
+        evidence: `signature count=${n}, threshold=${threshold}`,
+      },
+    ];
+  }
+  if (cfg.repeat.warnAt > 0 && n >= cfg.repeat.warnAt) {
+    return [
+      {
+        kind: "repeat",
+        severity: "warn",
+        tool: proposed.tool,
+        message:
+          `"${proposed.tool}" has been called ${n} times with identical arguments — the result is already ` +
+          `in context. Identical calls are blocked at ${threshold}; make sure any retry adds new information.`,
+        evidence: `signature count=${n}, warnAt=${cfg.repeat.warnAt}`,
+      },
+    ];
+  }
+  return allow;
 }
 
 /**

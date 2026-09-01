@@ -1,4 +1,4 @@
-import { countEvents, countBlocks, type StatusReport } from "./store.js";
+import { countEvents, countBlocks, oldestEventTs, type StatusReport } from "./store.js";
 import type { Finding } from "./analysis.js";
 
 export interface PlanPreset {
@@ -70,20 +70,23 @@ export function resolveLimits(cfg: BudgetConfig): PlanPreset {
 export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.now()): BudgetSnapshot {
   const turns = countEvents(sessionId, ["turn"], now - HOUR);
   const subagents = countEvents(sessionId, ["subagent"], now - HOUR);
-  const used5h = countEvents(sessionId, ["turn"], now - FIVE_HOURS) + subagents * cfg.subagentWeight;
+  const used5h = countEvents(sessionId, ["turn"], now - FIVE_HOURS) + countEvents(sessionId, ["subagent"], now - FIVE_HOURS) * cfg.subagentWeight;
   const usedWeek = countEvents(sessionId, ["turn"], now - WEEK) + countEvents(sessionId, ["subagent"], now - WEEK) * cfg.subagentWeight;
   const limits = resolveLimits(cfg);
 
-  const mk = (label: string, used: number, limit: number, span: number): WindowUsage => ({
+  // Rolling-window semantics: the window ends `span` after the OLDEST event
+  // still inside it. With no events the window has not started — a full span
+  // lies ahead. (Epoch-aligned modulo arithmetic would be cheaper but wrong.)
+  const mk = (label: string, used: number, limit: number, span: number, oldestTs: number | null): WindowUsage => ({
     label,
     used,
     limit,
     percent: limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0,
-    resetsInMs: span - (now % span),
+    resetsInMs: oldestTs !== null ? Math.max(0, oldestTs + span - now) : span,
   });
 
-  const five = mk("5h", used5h, limits.fiveHour, FIVE_HOURS);
-  const week = mk("weekly", usedWeek, limits.weekly, WEEK);
+  const five = mk("5h", used5h, limits.fiveHour, FIVE_HOURS, oldestEventTs(sessionId, ["turn", "subagent"], now - FIVE_HOURS));
+  const week = mk("weekly", usedWeek, limits.weekly, WEEK, oldestEventTs(sessionId, ["turn", "subagent"], now - WEEK));
 
   const hoursLeft5h = Math.max(0.25, (five.resetsInMs) / HOUR);
   const projected = used5h + turns * hoursLeft5h + subagents * cfg.subagentWeight * hoursLeft5h;

@@ -147,7 +147,9 @@ What the supervisor does in-process (no shell hooks, no exit codes):
 ```toml
 [repeat]                # exact/near-duplicate repetition
 maxRepeats = 3
+warnAt = 2              # soft context warning before the hard block
 windowMinutes = 30
+# exemptPatterns = [...] # regexes over JSON-serialized args; matching calls are never repeat-blocked (polling commands)
 
 [cycle]                 # A->B->A->B oscillation detection
 enabled = true
@@ -179,6 +181,7 @@ blockAt = 10
 enabled = true
 blockOnNoEvidence = false  # hooks path: block Stop when edits landed but nothing was verified
 evidenceWindowMinutes = 60
+shellTools = ["Shell", "Bash"]  # tool names that execute shell commands (evidence is searched in these)
 
 [verify.veto]           # optional false-positive suppression vote (off by default, zero deps when off)
 enabled = false         # requires KIMI_GUARD_VETO_API_KEY in the environment (any OpenAI-compatible endpoint)

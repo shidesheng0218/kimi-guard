@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1 — 2026-09-01
+
+- 🚦 **Wire budget gate fixed**: the Wire supervisor never recorded `turn`/`subagent` events, so the quota gate read zero usage and could not fire in `kguard run`. `TurnBegin` now counts as one request (same as `TurnStarted` in hooks mode); the first event from a subagent counts as its dispatch.
+- 🔍 **Fingerprint whitespace semantics fixed**: the whitespace-sensitive tool list was a dead branch — whitespace was collapsed for all tools. Shell/WriteFile/Grep etc. now preserve whitespace (a differently-indented write is NOT a duplicate); other tools keep whitespace-tolerant matching.
+- 🔔 **Repeat warn stage**: identical-call repetition now warns at `warnAt` (default 2) before blocking at `maxRepeats`, matching the other detectors' warn→block progression. New `repeat.exemptPatterns` (regexes over JSON-serialized args) exempts polling-style calls like `git status`.
+- 💓 **Guard liveness / schema-drift detection**: every hook event records `last_hook_ts`; payloads that fail normalization increment `normalize_misses`. `kguard status` shows last hook activity; `kguard doctor` warns on normalization misses and on "hooks installed but silent for 24h+ while a kimi process runs" — the guard can no longer die silently.
+- ⏱️ **Rolling budget windows**: `resetsInMs` is now anchored to the oldest event inside the window instead of epoch-aligned modulo arithmetic; burn-rate projection uses the corrected window. Also fixed: the 5h window undercounted subagent dispatches (it only counted the last hour's) — the dangerous direction for a guard.
+- 🛠️ **Configurable shell tool names**: `verify.shellTools` (default `["Shell", "Bash"]`) — evidence detection, veto context and checkpoint briefs no longer hardcode tool names, so an upstream tool rename can't silently disable the completion gate.
+
 ## 0.6.0 — 2026-09-01
 
 - 🧾 **Completion gate**: deterministic claim-vs-evidence verification. Completion claims ("tests pass" / "测试全部通过") are matched against the locally recorded command history; an unbacked claim triggers a corrective round (Wire mode) or blocks the turn end (hooks path, opt-in `blockOnNoEvidence`).

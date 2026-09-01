@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { callsSince, knownSessions, recordEvent } from "./store.js";
 import { guardHome } from "./paths.js";
+import { loadConfig, type GuardConfig } from "./config.js";
 
 export interface Checkpoint {
   sessionId: string;
@@ -33,10 +34,11 @@ function argSummary(argsJson: string, max = 100): string {
  * files touched, commands run, searches made, edits, and guard interventions.
  * This is what a resumed session needs to avoid re-exploring from scratch.
  */
-export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3_600_000): string {
+export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3_600_000, cfg: GuardConfig = loadConfig()): string {
   const calls = callsSince(sessionId, now - windowMs, 1000);
   if (calls.length === 0) return "";
 
+  const shellTools = new Set(cfg.verify.shellTools.length > 0 ? cfg.verify.shellTools : ["Shell", "Bash"]);
   const files = new Map<string, { reads: number; edits: number }>();
   const commands: string[] = [];
   const searches: string[] = [];
@@ -53,7 +55,7 @@ export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3
       f.reads++;
       files.set(r.file_path, f);
     }
-    if (r.tool_name === "Shell" || r.tool_name === "Bash") commands.push(summary);
+    if (shellTools.has(r.tool_name)) commands.push(summary);
     if (r.tool_name === "Grep" || r.tool_name === "Glob") searches.push(summary);
     if (r.status === "failure") failures.push(`${r.tool_name}: ${summary}`);
   }
@@ -97,8 +99,8 @@ export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3
   return lines.join("\n");
 }
 
-export function captureCheckpoint(sessionId: string, reason: string, now = Date.now()): Checkpoint | null {
-  const brief = buildBrief(sessionId, now);
+export function captureCheckpoint(sessionId: string, reason: string, now = Date.now(), cfg: GuardConfig = loadConfig()): Checkpoint | null {
+  const brief = buildBrief(sessionId, now, 6 * 3_600_000, cfg);
   if (!brief) return null;
   const dir = path.join(guardHome(), "checkpoints", sessionId.replace(/[^\w.-]/g, "_"));
   fs.mkdirSync(dir, { recursive: true });

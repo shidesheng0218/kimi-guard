@@ -6,9 +6,12 @@ export interface GuardConfig {
   repeat: {
     enabled: boolean;
     maxRepeats: number;
+    warnAt: number;
     windowMinutes: number;
     watch: string[];
     thresholds: Record<string, number>;
+    /** regex strings matched against the JSON-serialized args — matching calls are exempt from repeat detection (e.g. polling commands) */
+    exemptPatterns: string[];
   };
   cycle: {
     enabled: boolean;
@@ -38,6 +41,8 @@ export interface GuardConfig {
     evidenceWindowMinutes: number;
     claimPatterns: string[];
     evidencePatterns: string[];
+    /** tool names that execute shell commands (evidence commands are searched in these) */
+    shellTools: string[];
     veto: {
       enabled: boolean;
       model: string;
@@ -89,9 +94,11 @@ export const defaultConfig: GuardConfig = {
   repeat: {
     enabled: true,
     maxRepeats: 3,
+    warnAt: 2,
     windowMinutes: 30,
     watch: ["Grep", "Glob", "Shell", "Bash", "FetchURL", "SearchWeb", "ReadFile"],
     thresholds: { ReadFile: 5 },
+    exemptPatterns: [],
   },
   cycle: { enabled: true, windowMinutes: 30 },
   noProgress: { enabled: true, windowMinutes: 30, warnAt: 15, blockAt: 25 },
@@ -102,6 +109,7 @@ export const defaultConfig: GuardConfig = {
     evidenceWindowMinutes: 60,
     claimPatterns: [],
     evidencePatterns: [],
+    shellTools: ["Shell", "Bash"],
     veto: {
       enabled: false,
       model: "kimi-k3",
@@ -141,8 +149,10 @@ const CONFIG_TEMPLATE = `# kimi-guard configuration
 [repeat]
 enabled = true
 maxRepeats = 3            # identical (tool, args) calls allowed per window
+warnAt = 2                # soft context warning before the hard block
 windowMinutes = 30
 watch = ["Grep", "Glob", "Shell", "Bash", "FetchURL", "SearchWeb", "ReadFile"]
+# exemptPatterns = ["git status"]  # regexes over JSON-serialized args; matching calls are never repeat-blocked (polling commands like git status, sleep)
 
 [repeat.thresholds]       # per-tool overrides
 ReadFile = 5
@@ -167,6 +177,7 @@ blockAt = 10
 enabled = true
 blockOnNoEvidence = false # hooks path: block Stop when edits landed but nothing was verified
 evidenceWindowMinutes = 60
+shellTools = ["Shell", "Bash"]  # tool names that execute shell commands — evidence is searched in these
 
 [verify.veto]             # optional LLM veto vote to suppress false positives (self-critic style)
 enabled = false           # requires KIMI_GUARD_VETO_API_KEY in the environment
@@ -255,8 +266,11 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   const repeat = section("repeat");
   cfg.repeat.enabled = bool(repeat["enabled"], cfg.repeat.enabled);
   cfg.repeat.maxRepeats = num(repeat["maxRepeats"], cfg.repeat.maxRepeats);
+  cfg.repeat.warnAt = num(repeat["warnAt"], cfg.repeat.warnAt);
   cfg.repeat.windowMinutes = num(repeat["windowMinutes"], cfg.repeat.windowMinutes);
   cfg.repeat.watch = strArr(repeat["watch"], cfg.repeat.watch);
+  const exempt = repeat["exemptPatterns"];
+  if (Array.isArray(exempt)) cfg.repeat.exemptPatterns = exempt.filter((p): p is string => typeof p === "string");
   const th = repeat["thresholds"] as Record<string, unknown> | undefined;
   if (th) for (const [k, v] of Object.entries(th)) if (typeof v === "number") cfg.repeat.thresholds[k] = v;
 
@@ -284,6 +298,7 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   if (Array.isArray(claims)) cfg.verify.claimPatterns = claims.filter((c): c is string => typeof c === "string");
   const evidence = verify["evidencePatterns"];
   if (Array.isArray(evidence)) cfg.verify.evidencePatterns = evidence.filter((c): c is string => typeof c === "string");
+  cfg.verify.shellTools = strArr(verify["shellTools"], cfg.verify.shellTools);
   const veto = verify["veto"] as Record<string, unknown> | undefined;
   if (veto) {
     cfg.verify.veto.enabled = bool(veto["enabled"], cfg.verify.veto.enabled);

@@ -8,6 +8,7 @@
  *   nogain  — 4 Grep calls with different args but identical output (warn→steer, then block)
  *   maxsteps — reports max_steps_reached immediately
  *   approval — one approval request (records the client's decision), then finishes
+ *   dispatch — one Task (subagent dispatch) call, exercising the budget gate
  *   steercap — emits a warn-worthy pattern repeatedly to exercise the steer cap
  * All client decisions are appended to FAKE_LOG (JSONL) for assertions.
  */
@@ -195,6 +196,14 @@ async function runScenario(promptId, userInput) {
     });
     log({ dir: "approval_decision", response: result.response });
     event("ApprovalResponse", { request_id: "ap-1", response: result.response ?? "reject" });
+    event("TurnEnd", {});
+    respond(promptId, { status: "finished" });
+    return;
+  }
+
+  if (scenario === "dispatch") {
+    // one subagent-dispatch tool call; the budget gate may block it
+    await doToolCall("tc-d", "Task", { prompt: "do the subtask" }, "subtask done");
     event("TurnEnd", {});
     respond(promptId, { status: "finished" });
     return;

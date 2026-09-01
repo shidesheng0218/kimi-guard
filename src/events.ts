@@ -37,31 +37,37 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-function sortDeep(value: unknown): Json {
-  if (Array.isArray(value)) return value.map(sortDeep);
+function sortDeep(value: unknown, collapseStrings: boolean): Json {
+  if (Array.isArray(value)) return value.map((x) => sortDeep(x, collapseStrings));
   if (value !== null && typeof value === "object") {
     const out: { [k: string]: Json } = {};
     for (const k of Object.keys(value as Record<string, unknown>).sort()) {
-      out[k] = sortDeep((value as Record<string, unknown>)[k]);
+      out[k] = sortDeep((value as Record<string, unknown>)[k], collapseStrings);
     }
     return out;
   }
   if (value === undefined) return null;
-  if (typeof value === "string") return collapseWs(value);
+  if (typeof value === "string") return collapseStrings ? collapseWs(value) : value;
   return value as Json;
 }
 
+/**
+ * Tools whose string arguments are whitespace-sensitive: a shell command,
+ * grep pattern or file write whose whitespace differs IS a different call,
+ * so collapsing it would produce false "repeat" blocks. For everything else,
+ * whitespace differences carry no semantic weight and are collapsed.
+ */
 const WHITESPACE_SENSITIVE = new Set(["Shell", "Bash", "Grep", "Glob", "FetchURL", "SearchWeb", "ReadFile", "WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit"]);
 
 /**
  * Near-duplicate tolerant fingerprint: deep key-sorted JSON with collapsed
- * whitespace inside string values (only for tools where whitespace changes
- * carry no semantic weight we care about here).
+ * whitespace inside string values, except for whitespace-sensitive tools
+ * where the original whitespace is preserved.
  */
 export function fingerprint(tool: string, args: unknown): string {
   let v: unknown = args ?? {};
   if (v === null || typeof v !== "object") v = { value: v ?? null };
-  const normalized = WHITESPACE_SENSITIVE.has(tool) ? sortDeep(v) : (JSON.parse(JSON.stringify(sortDeep(v))) as Json);
+  const normalized = sortDeep(v, !WHITESPACE_SENSITIVE.has(tool));
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex").slice(0, 16);
 }
 
@@ -71,7 +77,7 @@ export function hashOutput(output: unknown): string | null {
   if (typeof output === "string") s = output;
   else {
     try {
-      s = JSON.stringify(sortDeep(output));
+      s = JSON.stringify(sortDeep(output, false));
     } catch {
       s = String(output);
     }

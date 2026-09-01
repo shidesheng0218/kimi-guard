@@ -120,6 +120,8 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
   let steersSent = 0;
   let cancelled = false;
   const pendingToolCalls = new Map<string, { name: string; args: unknown }>();
+  /** subagents seen so far — first sight ≈ one dispatch for budget accounting */
+  const seenSubagents = new Set<string>();
   const hintedPatterns = new Set<string>();
   const anchoredSteps = new Set<number>();
   let killSwitchArmed = false;
@@ -211,6 +213,8 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
         turnThinkChars = 0;
         turnTextChars = 0;
         turnText = "";
+        // budget accounting: a turn ≈ 1 request, same as TurnStarted in hooks mode
+        recordEvent(sessionId(), "turn", { wire: true });
         break;
       }
       case "TurnEnd": {
@@ -259,6 +263,12 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
 
   function handleSubagentEvent(p: SubagentEventPayload): void {
     const agentKey = p.agent_id ?? p.subagent_type ?? "unknown";
+    if (!seenSubagents.has(agentKey)) {
+      seenSubagents.add(agentKey);
+      // budget accounting: wire has no SubagentStart event — the first event
+      // from an agent is the dispatch, same as SubagentStart in hooks mode
+      recordEvent(sessionId(), "subagent", { agent: agentKey });
+    }
     const nested = p.event as { type?: string; payload?: Record<string, unknown> } | undefined;
     if (!nested?.type) return;
     switch (nested.type) {
@@ -437,7 +447,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
             report.verifyRounds++;
             report.endReason = "verify";
             recordEvent(sessionId(), "verify_gate", { claims: claims.length });
-            captureCheckpoint(sessionId(), "verify-gate", Date.now());
+            captureCheckpoint(sessionId(), "verify-gate", Date.now(), cfg);
             currentPrompt = WIRE_VERIFY_CORRECTIVE;
             continue;
           }
@@ -448,7 +458,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
 
       if (result.status === "max_steps_reached" && attempt <= opts.autoResume) {
         report.resumes++;
-        const brief = captureCheckpoint(sessionId(), "auto-resume", Date.now());
+        const brief = captureCheckpoint(sessionId(), "auto-resume", Date.now(), cfg);
         const d6Note = report.thinkingDominance > 0
           ? " Note: the previous turns were dominated by thinking with little action — act more, think less."
           : "";
@@ -466,7 +476,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
     }
 
     if (killSwitchArmed) {
-      captureCheckpoint(sessionId(), "kill-switch", Date.now());
+      captureCheckpoint(sessionId(), "kill-switch", Date.now(), cfg);
     }
   } catch (err) {
     report.endReason = "error";

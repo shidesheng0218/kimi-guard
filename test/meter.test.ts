@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { defaultConfig } from "../src/config.js";
-import { resetDbForTests, recordEvent, countEvents, knownSessions } from "../src/store.js";
+import { resetDbForTests, recordEvent, countEvents, knownSessions, getMeta } from "../src/store.js";
 import { budgetSnapshot, evaluateBudgetGate, resolveLimits, formatSnapshot } from "../src/meter.js";
 import { buildBrief, captureCheckpoint, latestCheckpointFile, renderResumeBlock } from "../src/checkpoint.js";
 import { processHookEvent } from "../src/guard.js";
@@ -44,6 +44,15 @@ describe("budget metering", () => {
     expect(snap.fiveHour.used).toBe(0);
   });
 
+  it("the 5h window counts subagents dispatched anywhere in the window (not just the last hour)", () => {
+    const now = Date.now();
+    // 2 hours ago: inside the 5h window, outside the burn-rate hour
+    recordEvent("s1", "subagent", {}, now - 2 * 3_600_000);
+    const snap = budgetSnapshot("s1", budgetCfg(), now);
+    expect(snap.fiveHour.used).toBe(5); // 1 subagent × weight 5
+    expect(snap.subagentsLastHour).toBe(0);
+  });
+
   it("blocks dispatch when the 5h window is exhausted past reserve", () => {
     const now = Date.now();
     for (let i = 0; i < 190; i++) recordEvent("s1", "turn", {}, now - i * 30_000);
@@ -77,6 +86,41 @@ describe("budget metering", () => {
     const text = formatSnapshot(snap);
     expect(text).toContain("5h:");
     expect(text).toContain("weekly:");
+  });
+
+  it("rolling window reset anchors to the oldest event in the window", () => {
+    const now = Date.now();
+    recordEvent("roll", "turn", {}, now - 3_600_000); // 1h ago
+    const snap = budgetSnapshot("roll", budgetCfg(), now);
+    // 5h window started 1h ago → ~4h left, not the epoch-aligned modulo value
+    expect(snap.fiveHour.resetsInMs).toBeGreaterThan(3.9 * 3_600_000);
+    expect(snap.fiveHour.resetsInMs).toBeLessThanOrEqual(4 * 3_600_000);
+  });
+
+  it("an untouched window shows a full span ahead", () => {
+    const snap = budgetSnapshot("fresh", budgetCfg());
+    expect(snap.fiveHour.resetsInMs).toBe(5 * 3_600_000);
+  });
+});
+
+describe("guard liveness (schema-drift detection)", () => {
+  it("records last hook activity on every event", () => {
+    const cfg = structuredClone(defaultConfig);
+    processHookEvent("TurnStarted", cfg, { session_id: "lv", origin_kind: "user" });
+    expect(getMeta("last_hook_event")).toBe("TurnStarted");
+    expect(Number(getMeta("last_hook_ts"))).toBeGreaterThan(0);
+  });
+
+  it("counts payloads that fail to normalize (schema drift signal)", () => {
+    const cfg = structuredClone(defaultConfig);
+    const out = processHookEvent("PreToolUse", cfg, { session_id: "lv", totally: "unknown fields" });
+    expect(out.code).toBe(0); // fail-open
+    expect(getMeta("normalize_misses")).toBe("1");
+    processHookEvent("PreToolUse", cfg, { session_id: "lv", still: "unknown" });
+    expect(getMeta("normalize_misses")).toBe("2");
+    // an empty payload is not a miss — nothing arrived to misparse
+    processHookEvent("PreToolUse", cfg, {});
+    expect(getMeta("normalize_misses")).toBe("2");
   });
 });
 

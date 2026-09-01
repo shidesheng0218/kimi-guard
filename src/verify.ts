@@ -67,10 +67,11 @@ export function hasEvidence(sessionId: string, cfg: GuardConfig, now = Date.now(
     cfg.verify.evidencePatterns.length > 0
       ? cfg.verify.evidencePatterns.map((p) => new RegExp(p))
       : DEFAULT_EVIDENCE_PATTERNS;
+  const shellTools = new Set(cfg.verify.shellTools.length > 0 ? cfg.verify.shellTools : ["Shell", "Bash"]);
   const calls = callsSince(sessionId, since, 400);
   for (const r of calls) {
     if (r.status !== "ok") continue;
-    if (r.tool_name !== "Shell" && r.tool_name !== "Bash") continue;
+    if (!shellTools.has(r.tool_name)) continue;
     try {
       const args = JSON.parse(r.args_json) as { command?: string };
       const cmd = args.command ?? "";

@@ -146,6 +146,16 @@ export function countEvents(sessionId: string, kinds: string[], sinceTs: number)
   return Number(row?.n ?? 0);
 }
 
+export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: number): number | null {
+  const placeholders = kinds.map(() => "?").join(",");
+  const row = openDb()
+    .prepare(
+      `SELECT MIN(ts) AS m FROM events WHERE session_id = ? AND kind IN (${placeholders}) AND ts >= ?`,
+    )
+    .get(sessionId, ...kinds, sinceTs) as { m: number | null };
+  return row?.m ?? null;
+}
+
 export function recordBlock(sessionId: string, toolName: string, kind: string, ts = Date.now()): void {
   openDb()
     .prepare("INSERT INTO blocks (session_id, tool_name, kind, ts) VALUES (?, ?, ?, ?)")
@@ -223,7 +233,9 @@ export function buildStatus(): StatusReport {
   const events24h = (
     d.prepare("SELECT kind, COUNT(*) AS n FROM events WHERE ts >= ? GROUP BY kind").all(day) as Array<{ kind: string; n: number }>
   ).map((r) => ({ kind: r.kind, n: Number(r.n) }));
-  const lastActivity = d.prepare("SELECT MAX(ts) AS m FROM calls").get() as { m: number | null };
+  const lastActivity = d
+    .prepare("SELECT MAX(m) AS m FROM (SELECT MAX(ts) AS m FROM calls UNION ALL SELECT MAX(ts) AS m FROM events)")
+    .get() as { m: number | null };
   return {
     calls24h,
     blocks24h,

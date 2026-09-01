@@ -57,6 +57,16 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
     }
   }
 
+  // Liveness tracking: the guard can only detect its own schema drift while
+  // hooks still fire. last_hook_* feeds `kguard status`/`doctor`; a payload
+  // that no longer normalizes increments normalize_misses.
+  try {
+    setMeta("last_hook_ts", String(now));
+    setMeta("last_hook_event", event);
+  } catch {
+    /* fail-open */
+  }
+
   const sessionId =
     (typeof payload["session_id"] === "string" && payload["session_id"]) ||
     (typeof payload["sessionId"] === "string" && payload["sessionId"]) ||
@@ -82,7 +92,7 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
     case "PreCompact":
       recordEvent(sessionId, "compaction", { phase: "pre" }, now);
       setSessionMeta(sessionId, "last_compact_ts", String(now));
-      captureCheckpoint(sessionId, "pre-compact", now);
+      captureCheckpoint(sessionId, "pre-compact", now, cfg);
       return { code: 0 };
     case "PostCompact":
       recordEvent(sessionId, "compaction", { phase: "post" }, now);
@@ -95,23 +105,36 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       return { code: 0 };
     case "StopFailure":
       recordEvent(sessionId, "stop_failure", { error: String(payload["error_message"] ?? payload["error_type"] ?? "") }, now);
-      captureCheckpoint(sessionId, "stop-failure", now);
+      captureCheckpoint(sessionId, "stop-failure", now, cfg);
       return { code: 0 };
     case "Interrupt":
       recordEvent(sessionId, "interrupt", { reason: String(payload["reason"] ?? "") }, now);
-      captureCheckpoint(sessionId, "interrupt", now);
+      captureCheckpoint(sessionId, "interrupt", now, cfg);
       return { code: 0 };
     case "SessionEnd":
-      captureCheckpoint(sessionId, "session-end", now);
+      captureCheckpoint(sessionId, "session-end", now, cfg);
       return { code: 0 };
     default:
       return { code: 0 };
   }
 }
 
+function noteNormalizeMiss(now: number): void {
+  try {
+    const misses = Number(getMeta("normalize_misses") ?? "0") + 1;
+    setMeta("normalize_misses", String(misses));
+    setMeta("last_normalize_miss_ts", String(now));
+  } catch {
+    /* fail-open */
+  }
+}
+
 function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload, sessionId: string, now: number): HookOutcome {
   const call = normalizeCall(payload, event, now);
-  if (!call) return { code: 0 };
+  if (!call) {
+    if (Object.keys(payload).length > 0) noteNormalizeMiss(now);
+    return { code: 0 };
+  }
 
   const since = now - Math.max(cfg.repeat.windowMinutes, cfg.cycle.windowMinutes, cfg.policy.blockWindowMinutes) * 60_000;
   const history = callsSince(sessionId, since);

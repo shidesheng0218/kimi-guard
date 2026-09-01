@@ -4,7 +4,7 @@ import pc from "picocolors";
 import { loadConfig } from "./config.js";
 import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath } from "./paths.js";
 import { hooksInstalled } from "./installer.js";
-import { buildStatus, openDb, knownSessions } from "./store.js";
+import { buildStatus, openDb, knownSessions, getMeta } from "./store.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
@@ -21,12 +21,33 @@ function fail(msg: string): void {
   console.log(`${pc.red("✗")} ${msg}`);
 }
 
+/** Best-effort detection of a running Kimi CLI process (unix only). */
+function kimiProcessRunning(): boolean {
+  if (process.platform !== "darwin" && process.platform !== "linux") return false;
+  try {
+    const r = spawnSync("ps", ["-eo", "args"], { encoding: "utf8", timeout: 3000, maxBuffer: 8 * 1024 * 1024 });
+    if (r.status !== 0 || !r.stdout) return false;
+    return r.stdout
+      .split("\n")
+      .some((line) => /(?:^|[/\s])kimi(?:\s|$)/.test(line.trim()) && !line.includes("kimi-guard") && !line.includes("kguard"));
+  } catch {
+    return false;
+  }
+}
+
 export function cmdStatus(): void {
   const cfg = loadConfig();
   const s = buildStatus();
   const dt = s.lastActivityTs ? new Date(s.lastActivityTs).toISOString() : "never";
+  const lastHookTs = Number(getMeta("last_hook_ts") ?? "0");
+  const lastHook = lastHookTs > 0 ? `${new Date(lastHookTs).toISOString()} (${getMeta("last_hook_event") ?? "?"})` : "never";
+  const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
   console.log(`kimi-guard status (state: ${stateDbPath()})`);
   console.log(`  last activity:       ${dt}`);
+  console.log(`  last hook activity:  ${lastHook}`);
+  if (normalizeMisses > 0) {
+    console.log(`  ${pc.yellow("!")} payload normalization misses: ${normalizeMisses} — possible upstream schema drift; run 'kguard probe on' and compare 'kguard doctor' field coverage`);
+  }
   console.log(`  tool calls (24h):    ${s.calls24h}`);
   const parts24 = s.blocks24h.map((b) => `${b.kind}×${b.n}`).join(", ");
   console.log(`  interventions (24h): ${parts24 || "none"}`);
@@ -127,6 +148,37 @@ export function cmdDoctor(): number {
 
   if (fs.existsSync(userConfigPath())) ok(`config present: ${userConfigPath()}`);
   else warn("no user config (defaults in effect) — run 'kguard config init' to create one");
+
+  // Guard liveness: a guard that silently stops receiving hook payloads is the
+  // worst failure mode (fail-open by design). Surface the signals we do have.
+  try {
+    const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
+    if (normalizeMisses > 0) {
+      const lastMiss = getMeta("last_normalize_miss_ts");
+      warn(
+        `${normalizeMisses} hook payload(s) failed to normalize (last: ${lastMiss ? new Date(Number(lastMiss)).toISOString() : "unknown"}) — ` +
+          `possible upstream schema drift; run 'kguard probe on', use the CLI, then 'kguard probe show'`,
+      );
+    } else {
+      ok("hook payload normalization: no misses recorded");
+    }
+
+    const lastHookTs = Number(getMeta("last_hook_ts") ?? "0");
+    if (hooksInstalled(kimi.path)) {
+      if (lastHookTs === 0) {
+        warn("hooks installed but no hook activity recorded yet — the guard has never fired in this state db");
+      } else if (Date.now() - lastHookTs > 24 * 3_600_000 && kimiProcessRunning()) {
+        warn(
+          `hooks installed but no hook activity for over 24h while a kimi process is running — ` +
+            `the guard may be silently inert (CLI update? reinstall hooks with 'kguard install')`,
+        );
+      } else {
+        ok(`hook activity last seen ${new Date(lastHookTs).toISOString()}`);
+      }
+    }
+  } catch {
+    /* liveness checks are advisory — never fail doctor over them */
+  }
 
   if (cfg.verify.veto.enabled) {
     if (vetoKeyConfigured()) ok(`verify veto: enabled, KIMI_GUARD_VETO_API_KEY present`);

@@ -40,10 +40,17 @@ const mk = (
 });
 
 describe("fingerprint (near-duplicate tolerance)", () => {
-  it("collapses whitespace differences", () => {
-    expect(fingerprint("Grep", { pattern: "foo  bar", path: "src" })).toBe(
+  it("collapses whitespace for whitespace-insensitive tools", () => {
+    expect(fingerprint("SetTodoList", { title: "foo  bar" })).toBe(
+      fingerprint("SetTodoList", { title: "foo bar" }),
+    );
+  });
+
+  it("preserves whitespace for whitespace-sensitive tools (a different command is a different call)", () => {
+    expect(fingerprint("Grep", { pattern: "foo  bar", path: "src" })).not.toBe(
       fingerprint("Grep", { pattern: "foo bar", path: "src" }),
     );
+    expect(fingerprint("Shell", { command: "echo a b" })).not.toBe(fingerprint("Shell", { command: "echo ab" }));
   });
 
   it("is key-order independent", () => {
@@ -107,15 +114,34 @@ describe("repetition analyzer", () => {
     expect(r.findings.find((f) => f.kind === "repeat")).toBeUndefined();
   });
 
-  it("per-tool threshold override (ReadFile)", () => {
+  it("per-tool threshold override (ReadFile): warn below, block at threshold", () => {
     const c = cfg();
     const args = { path: "a.ts" };
     const history = Array.from({ length: 4 }, () => mk("ReadFile", args));
     const r = analyzeCall(history, { tool: "ReadFile", argsHash: fingerprint("ReadFile", args), args }, c);
-    expect(r.findings.find((f) => f.kind === "repeat")).toBeUndefined();
+    expect(r.findings.find((f) => f.kind === "repeat" && f.severity === "block")).toBeUndefined();
+    expect(r.findings.find((f) => f.kind === "repeat" && f.severity === "warn")).toBeDefined();
     const history5 = [...history, mk("ReadFile", args)];
     const r2 = analyzeCall(history5, { tool: "ReadFile", argsHash: fingerprint("ReadFile", args), args }, c);
     expect(r2.findings.some((f) => f.kind === "repeat" && f.severity === "block")).toBe(true);
+  });
+
+  it("exemptPatterns never trigger repeat findings (polling commands)", () => {
+    const c = cfg();
+    c.repeat.exemptPatterns = ["git status"];
+    const args = { command: "git status --short" };
+    const history = Array.from({ length: 6 }, (_, i) => mk("Shell", args, { ago: (6 - i) * 60_000 }));
+    for (const h of history) recordCall({ sessionId: "s1", toolName: h.tool_name, argsHash: h.args_hash, argsJson: h.args_json, outputHash: h.output_hash, filePath: h.file_path, status: h.status as "ok", ts: h.ts });
+    const r = analyzeCall(history, { tool: "Shell", argsHash: fingerprint("Shell", args), args }, c);
+    expect(r.findings.find((f) => f.kind === "repeat")).toBeUndefined();
+  });
+
+  it("warn fires below the block threshold", () => {
+    const c = cfg();
+    const args = { pattern: "w" };
+    const history = [mk("Grep", args), mk("Grep", args)];
+    const r = analyzeCall(history, { tool: "Grep", argsHash: fingerprint("Grep", args), args }, c);
+    expect(r.findings.find((f) => f.kind === "repeat")?.severity).toBe("warn");
   });
 });
 
@@ -233,5 +259,23 @@ describe("store roundtrip", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]!.output_hash).toBeNull();
     expect(rows[1]!.output_hash).toBe(hashOutput("out"));
+  });
+
+  it("lastActivityTs considers the events table too (observation-only sessions)", async () => {
+    const { buildStatus, recordEvent } = await import("../src/store.js");
+    const ts = Date.now() - 60_000;
+    recordEvent("ev-only", "turn", {}, ts);
+    expect(buildStatus().lastActivityTs).toBe(ts);
+  });
+
+  it("oldestEventTs returns the oldest matching event in the window", async () => {
+    const { oldestEventTs, recordEvent } = await import("../src/store.js");
+    const now = Date.now();
+    recordEvent("o1", "turn", {}, now - 3_600_000);
+    recordEvent("o1", "turn", {}, now - 60_000);
+    recordEvent("o1", "other", {}, now - 2 * 3_600_000);
+    expect(oldestEventTs("o1", ["turn"], now - 5 * 3_600_000)).toBe(now - 3_600_000);
+    expect(oldestEventTs("o1", ["turn"], now - 30_000)).toBeNull();
+    expect(oldestEventTs("ghost", ["turn"], 0)).toBeNull();
   });
 });

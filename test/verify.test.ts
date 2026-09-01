@@ -63,6 +63,16 @@ describe("evidence detection", () => {
     recordCall({ sessionId: "v4", toolName: "Shell", argsHash: "h", argsJson: JSON.stringify({ command: "npm test" }), outputHash: "o", filePath: null, status: "ok", ts: old });
     expect(hasEvidence("v4", cfg())).toBe(false);
   });
+
+  it("honors configurable shell tool names (upstream tool renames)", () => {
+    recordCall({ sessionId: "v5", toolName: "execute_command", argsHash: "h", argsJson: JSON.stringify({ command: "npm test" }), outputHash: "o", filePath: null, status: "ok" });
+    // default config only knows Shell/Bash → no evidence
+    expect(hasEvidence("v5", cfg())).toBe(false);
+    // after configuring the actual tool name, the same call counts
+    const c = cfg();
+    c.verify.shellTools = ["execute_command"];
+    expect(hasEvidence("v5", c)).toBe(true);
+  });
 });
 
 describe("hooks-path Stop gate", () => {

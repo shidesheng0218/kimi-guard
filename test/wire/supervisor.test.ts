@@ -138,6 +138,16 @@ describe("supervised run (integration with fake Wire server)", () => {
     expect(mainRows.length).toBe(0);
   }, 20000);
 
+  it("budget gate fires in wire mode: dispatch blocked when the 5h window is exhausted", async () => {
+    const cfg = structuredClone(defaultConfig);
+    cfg.budget.fiveHour = 1; // one turn already counts as 1 request → window exhausted
+    const r = await run("delegate", "dispatch", { config: cfg });
+    expect(r.blocks.some((b) => b.kind === "budget")).toBe(true);
+    // wire runs must record turn events for the meter to work at all
+    const { countEvents } = await import("../../src/store.js");
+    expect(countEvents(r.runId, ["turn"], 0)).toBeGreaterThanOrEqual(1);
+  }, 20000);
+
   it("context-fill gate steers a wrap-up warning at the configured threshold", async () => {
     const r = await run("big job", "bloat");
     const ctx = r.steers.find((s) => s.kind === "context");
