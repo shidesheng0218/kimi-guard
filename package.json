@@ -1,0 +1,54 @@
+{
+  "name": "kimi-guard",
+  "version": "0.6.0",
+  "description": "Runtime behavior guard for Kimi Code CLI: loop detection, quota gates, checkpoint/resume, supervised Wire runs",
+  "type": "module",
+  "license": "MIT",
+  "author": "Mike Shi <670258236@qq.com>",
+  "homepage": "https://github.com/shidesheng0218/kimi-guard#readme",
+  "bin": {
+    "kimi-guard": "dist/cli.js",
+    "kguard": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "kimi",
+    "kimi-code",
+    "kimi-cli",
+    "moonshot",
+    "ai-agent",
+    "hooks",
+    "circuit-breaker",
+    "quota-guard",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shidesheng0218/kimi-guard.git"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "picocolors": "^1.1.1",
+    "smol-toml": "^1.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

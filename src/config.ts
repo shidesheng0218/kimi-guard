@@ -1,0 +1,347 @@
+import fs from "node:fs";
+import { parse as parseToml } from "smol-toml";
+import { userConfigPath } from "./paths.js";
+
+export interface GuardConfig {
+  repeat: {
+    enabled: boolean;
+    maxRepeats: number;
+    windowMinutes: number;
+    watch: string[];
+    thresholds: Record<string, number>;
+  };
+  cycle: {
+    enabled: boolean;
+    windowMinutes: number;
+  };
+  noGain: {
+    enabled: boolean;
+    windowMinutes: number;
+    warnAt: number;
+    blockAt: number;
+  };
+  noProgress: {
+    enabled: boolean;
+    windowMinutes: number;
+    warnAt: number;
+    blockAt: number;
+  };
+  nearRepeat: {
+    enabled: boolean;
+    windowMinutes: number;
+    warnAt: number;
+    blockAt: number;
+  };
+  verify: {
+    enabled: boolean;
+    blockOnNoEvidence: boolean;
+    evidenceWindowMinutes: number;
+    claimPatterns: string[];
+    evidencePatterns: string[];
+    veto: {
+      enabled: boolean;
+      model: string;
+      baseUrl: string;
+      maxCallsPerSession: number;
+      timeoutMs: number;
+    };
+  };
+  thinking: {
+    enabled: boolean;
+    minThinkChars: number;
+    maxTextRatio: number;
+  };
+  anchor: {
+    enabled: boolean;
+    everyNPrompts: number;
+    maxChars: number;
+  };
+  context: {
+    enabled: boolean;
+    warnPercent: number;
+  };
+  churn: {
+    enabled: boolean;
+    windowMinutes: number;
+    warnAt: number;
+    blockAt: number;
+    tools: string[];
+  };
+  policy: {
+    killSwitch: boolean;
+    maxBlocksPerSession: number;
+    blockWindowMinutes: number;
+  };
+  budget: {
+    enabled: boolean;
+    plan: string;
+    weekly: number;
+    fiveHour: number;
+    dispatchTools: string[];
+    reservePercent: number;
+    subagentWeight: number;
+    warnPercent: number;
+  };
+  probe: boolean;
+}
+
+export const defaultConfig: GuardConfig = {
+  repeat: {
+    enabled: true,
+    maxRepeats: 3,
+    windowMinutes: 30,
+    watch: ["Grep", "Glob", "Shell", "Bash", "FetchURL", "SearchWeb", "ReadFile"],
+    thresholds: { ReadFile: 5 },
+  },
+  cycle: { enabled: true, windowMinutes: 30 },
+  noProgress: { enabled: true, windowMinutes: 30, warnAt: 15, blockAt: 25 },
+  nearRepeat: { enabled: true, windowMinutes: 30, warnAt: 6, blockAt: 10 },
+  verify: {
+    enabled: true,
+    blockOnNoEvidence: false,
+    evidenceWindowMinutes: 60,
+    claimPatterns: [],
+    evidencePatterns: [],
+    veto: {
+      enabled: false,
+      model: "kimi-k3",
+      baseUrl: "https://api.moonshot.cn/v1",
+      maxCallsPerSession: 3,
+      timeoutMs: 10000,
+    },
+  },
+  thinking: { enabled: true, minThinkChars: 20000, maxTextRatio: 0.1 },
+  anchor: { enabled: true, everyNPrompts: 5, maxChars: 1000 },
+  context: { enabled: true, warnPercent: 85 },
+  noGain: { enabled: true, windowMinutes: 30, warnAt: 3, blockAt: 4 },
+  churn: {
+    enabled: true,
+    windowMinutes: 30,
+    warnAt: 5,
+    blockAt: 10,
+    tools: ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"],
+  },
+  policy: { killSwitch: true, maxBlocksPerSession: 5, blockWindowMinutes: 60 },
+  budget: {
+    enabled: true,
+    plan: "tier1",
+    weekly: 0,
+    fiveHour: 0,
+    dispatchTools: ["Task", "Agent"],
+    reservePercent: 10,
+    subagentWeight: 5,
+    warnPercent: 80,
+  },
+  probe: false,
+};
+
+const CONFIG_TEMPLATE = `# kimi-guard configuration
+# Docs: https://github.com/shidesheng0218/kimi-guard
+
+[repeat]
+enabled = true
+maxRepeats = 3            # identical (tool, args) calls allowed per window
+windowMinutes = 30
+watch = ["Grep", "Glob", "Shell", "Bash", "FetchURL", "SearchWeb", "ReadFile"]
+
+[repeat.thresholds]       # per-tool overrides
+ReadFile = 5
+
+[cycle]                   # A->B->A->B oscillation detection
+enabled = true
+windowMinutes = 30
+
+[noProgress]              # long stretch of calls with no successful edit (histori-style D3)
+enabled = true
+windowMinutes = 30
+warnAt = 15
+blockAt = 25
+
+[nearRepeat]              # fuzzy near-duplicates (punctuation/case/order differences)
+enabled = true
+windowMinutes = 30
+warnAt = 6
+blockAt = 10
+
+[verify]                  # completion-claim gate: "tests pass" must be backed by a real run
+enabled = true
+blockOnNoEvidence = false # hooks path: block Stop when edits landed but nothing was verified
+evidenceWindowMinutes = 60
+
+[verify.veto]             # optional LLM veto vote to suppress false positives (self-critic style)
+enabled = false           # requires KIMI_GUARD_VETO_API_KEY in the environment
+model = "kimi-k3"         # use a cheap fast model — the LLM only votes, never authors
+baseUrl = "https://api.moonshot.cn/v1"
+maxCallsPerSession = 3    # anti "vote-laundering" cap: the model cannot retry its way out
+timeoutMs = 10000
+
+[thinking]                # thinking-dominance (pure-reasoning turns), Wire mode only
+enabled = true
+minThinkChars = 20000
+maxTextRatio = 0.1
+
+[anchor]                  # goal anchoring: re-inject the original task periodically
+enabled = true
+everyNPrompts = 5         # re-inject the goal every N prompts / steps
+maxChars = 1000
+
+[context]                 # context-fill gate (Wire mode reads StatusUpdate.context_usage)
+enabled = true
+warnPercent = 85          # steer a wrap-up warning when context is this full
+
+[noGain]                  # different args, byte-identical output
+enabled = true
+windowMinutes = 30
+warnAt = 3
+blockAt = 4
+
+[churn]                   # same file edited over and over
+enabled = true
+windowMinutes = 30
+warnAt = 5
+blockAt = 10
+tools = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]
+
+[policy]
+killSwitch = true         # after maxBlocksPerSession interventions, block ALL tools
+maxBlocksPerSession = 5
+blockWindowMinutes = 60
+
+[budget]                  # request accounting for Kimi Coding Plans
+enabled = true
+plan = "tier1"            # tier1: 1024/week | tier2: 2048 | tier3: 7168 (200 per 5h)
+weekly = 0                # override weekly requests (0 = use plan preset)
+fiveHour = 0              # override 5h requests (0 = use plan preset)
+dispatchTools = ["Task", "Agent"]
+reservePercent = 10       # keep this much headroom for you, not the agent
+subagentWeight = 5        # ~requests each dispatched subagent costs
+warnPercent = 80
+
+[probe]
+enabled = false
+`;
+
+function num(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+function bool(v: unknown, fallback: boolean): boolean {
+  return typeof v === "boolean" ? v : fallback;
+}
+
+function strArr(v: unknown, fallback: string[]): string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length > 0 ? (v as string[]) : fallback;
+}
+
+export function loadConfig(configPath = userConfigPath()): GuardConfig {
+  const cfg: GuardConfig = structuredClone(defaultConfig);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(configPath, "utf8");
+  } catch {
+    return cfg;
+  }
+  let data: Record<string, unknown>;
+  try {
+    data = parseToml(raw) as Record<string, unknown>;
+  } catch (err) {
+    process.stderr.write(`[kimi-guard] failed to parse ${configPath}: ${(err as Error).message}\n`);
+    return cfg;
+  }
+
+  const section = (name: string): Record<string, unknown> =>
+    (data[name] as Record<string, unknown> | undefined) ?? {};
+
+  const repeat = section("repeat");
+  cfg.repeat.enabled = bool(repeat["enabled"], cfg.repeat.enabled);
+  cfg.repeat.maxRepeats = num(repeat["maxRepeats"], cfg.repeat.maxRepeats);
+  cfg.repeat.windowMinutes = num(repeat["windowMinutes"], cfg.repeat.windowMinutes);
+  cfg.repeat.watch = strArr(repeat["watch"], cfg.repeat.watch);
+  const th = repeat["thresholds"] as Record<string, unknown> | undefined;
+  if (th) for (const [k, v] of Object.entries(th)) if (typeof v === "number") cfg.repeat.thresholds[k] = v;
+
+  const cycle = section("cycle");
+  cfg.cycle.enabled = bool(cycle["enabled"], cfg.cycle.enabled);
+  cfg.cycle.windowMinutes = num(cycle["windowMinutes"], cfg.cycle.windowMinutes);
+
+  const noProgress = section("noProgress");
+  cfg.noProgress.enabled = bool(noProgress["enabled"], cfg.noProgress.enabled);
+  cfg.noProgress.windowMinutes = num(noProgress["windowMinutes"], cfg.noProgress.windowMinutes);
+  cfg.noProgress.warnAt = num(noProgress["warnAt"], cfg.noProgress.warnAt);
+  cfg.noProgress.blockAt = num(noProgress["blockAt"], cfg.noProgress.blockAt);
+
+  const nearRepeat = section("nearRepeat");
+  cfg.nearRepeat.enabled = bool(nearRepeat["enabled"], cfg.nearRepeat.enabled);
+  cfg.nearRepeat.windowMinutes = num(nearRepeat["windowMinutes"], cfg.nearRepeat.windowMinutes);
+  cfg.nearRepeat.warnAt = num(nearRepeat["warnAt"], cfg.nearRepeat.warnAt);
+  cfg.nearRepeat.blockAt = num(nearRepeat["blockAt"], cfg.nearRepeat.blockAt);
+
+  const verify = section("verify");
+  cfg.verify.enabled = bool(verify["enabled"], cfg.verify.enabled);
+  cfg.verify.blockOnNoEvidence = bool(verify["blockOnNoEvidence"], cfg.verify.blockOnNoEvidence);
+  cfg.verify.evidenceWindowMinutes = num(verify["evidenceWindowMinutes"], cfg.verify.evidenceWindowMinutes);
+  const claims = verify["claimPatterns"];
+  if (Array.isArray(claims)) cfg.verify.claimPatterns = claims.filter((c): c is string => typeof c === "string");
+  const evidence = verify["evidencePatterns"];
+  if (Array.isArray(evidence)) cfg.verify.evidencePatterns = evidence.filter((c): c is string => typeof c === "string");
+  const veto = verify["veto"] as Record<string, unknown> | undefined;
+  if (veto) {
+    cfg.verify.veto.enabled = bool(veto["enabled"], cfg.verify.veto.enabled);
+    cfg.verify.veto.model = typeof veto["model"] === "string" ? veto["model"] : cfg.verify.veto.model;
+    cfg.verify.veto.baseUrl = typeof veto["baseUrl"] === "string" ? veto["baseUrl"] : cfg.verify.veto.baseUrl;
+    cfg.verify.veto.maxCallsPerSession = num(veto["maxCallsPerSession"], cfg.verify.veto.maxCallsPerSession);
+    cfg.verify.veto.timeoutMs = num(veto["timeoutMs"], cfg.verify.veto.timeoutMs);
+  }
+
+  const thinking = section("thinking");
+  cfg.thinking.enabled = bool(thinking["enabled"], cfg.thinking.enabled);
+  cfg.thinking.minThinkChars = num(thinking["minThinkChars"], cfg.thinking.minThinkChars);
+  cfg.thinking.maxTextRatio = num(thinking["maxTextRatio"], cfg.thinking.maxTextRatio);
+
+  const anchor = section("anchor");
+  cfg.anchor.enabled = bool(anchor["enabled"], cfg.anchor.enabled);
+  cfg.anchor.everyNPrompts = num(anchor["everyNPrompts"], cfg.anchor.everyNPrompts);
+  cfg.anchor.maxChars = num(anchor["maxChars"], cfg.anchor.maxChars);
+
+  const context = section("context");
+  cfg.context.enabled = bool(context["enabled"], cfg.context.enabled);
+  cfg.context.warnPercent = num(context["warnPercent"], cfg.context.warnPercent);
+
+  const noGain = section("noGain");
+  cfg.noGain.enabled = bool(noGain["enabled"], cfg.noGain.enabled);
+  cfg.noGain.windowMinutes = num(noGain["windowMinutes"], cfg.noGain.windowMinutes);
+  cfg.noGain.warnAt = num(noGain["warnAt"], cfg.noGain.warnAt);
+  cfg.noGain.blockAt = num(noGain["blockAt"], cfg.noGain.blockAt);
+
+  const churn = section("churn");
+  cfg.churn.enabled = bool(churn["enabled"], cfg.churn.enabled);
+  cfg.churn.windowMinutes = num(churn["windowMinutes"], cfg.churn.windowMinutes);
+  cfg.churn.warnAt = num(churn["warnAt"], cfg.churn.warnAt);
+  cfg.churn.blockAt = num(churn["blockAt"], cfg.churn.blockAt);
+  cfg.churn.tools = strArr(churn["tools"], cfg.churn.tools);
+
+  const policy = section("policy");
+  cfg.policy.killSwitch = bool(policy["killSwitch"], cfg.policy.killSwitch);
+  cfg.policy.maxBlocksPerSession = num(policy["maxBlocksPerSession"], cfg.policy.maxBlocksPerSession);
+  cfg.policy.blockWindowMinutes = num(policy["blockWindowMinutes"], cfg.policy.blockWindowMinutes);
+
+  const budget = section("budget");
+  cfg.budget.enabled = bool(budget["enabled"], cfg.budget.enabled);
+  cfg.budget.plan = typeof budget["plan"] === "string" ? budget["plan"] : cfg.budget.plan;
+  cfg.budget.weekly = num(budget["weekly"], cfg.budget.weekly);
+  cfg.budget.fiveHour = num(budget["fiveHour"], cfg.budget.fiveHour);
+  cfg.budget.dispatchTools = strArr(budget["dispatchTools"], cfg.budget.dispatchTools);
+  cfg.budget.reservePercent = num(budget["reservePercent"], cfg.budget.reservePercent);
+  cfg.budget.subagentWeight = num(budget["subagentWeight"], cfg.budget.subagentWeight);
+  cfg.budget.warnPercent = num(budget["warnPercent"], cfg.budget.warnPercent);
+
+  cfg.probe = bool(section("probe")["enabled"], cfg.probe);
+  return cfg;
+}
+
+export function writeConfigTemplate(configPath = userConfigPath()): boolean {
+  if (fs.existsSync(configPath)) return false;
+  fs.mkdirSync(configPath.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
+  fs.writeFileSync(configPath, CONFIG_TEMPLATE, "utf8");
+  return true;
+}

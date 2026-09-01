@@ -1,0 +1,210 @@
+import fs from "node:fs";
+import { Command } from "commander";
+import { version } from "./version.js";
+import { loadConfig, writeConfigTemplate } from "./config.js";
+import { installHooks, uninstallHooks } from "./installer.js";
+import { runHook } from "./hook.js";
+import { setMeta } from "./store.js";
+import { cmdStatus, cmdDoctor } from "./status.js";
+import { probeLogPath, userConfigPath } from "./paths.js";
+import { captureCheckpoint, latestSessionId, latestCheckpointFile, renderResumeBlock } from "./checkpoint.js";
+import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js";
+import { runSupervised, formatReport } from "./wire/supervisor.js";
+
+const program = new Command();
+
+program
+  .name("kguard")
+  .description("Runtime behavior guard for Kimi Code CLI: loop detection, quota gates, checkpoints")
+  .version(version, "-V, --version", "print version");
+
+program
+  .command("install")
+  .description("install hook rules into the Kimi Code CLI config.toml (idempotent, creates a backup first)")
+  .option("--compat", "legacy-safe mode: only the 3 universally supported hook events (for older kimi-cli versions)")
+  .action((opts: { compat?: boolean }) => {
+    const r = installHooks("kguard", Boolean(opts.compat));
+    console.log(`✓ config: ${r.configPath}${r.created ? " (created)" : ""}`);
+    if (r.backupPath) console.log(`✓ backup: ${r.backupPath}`);
+    console.log(r.replaced ? `✓ managed hook block updated${opts.compat ? " (compat)" : ""}` : `✓ managed hook block added${opts.compat ? " (compat)" : ""}`);
+    if (!opts.compat) {
+      console.log("  note: if your CLI fails to load config after this (older kimi-cli), reinstall with: kguard install --compat");
+    }
+    console.log("  restart Kimi Code CLI (or /reload) to take effect.");
+  });
+
+program
+  .command("uninstall")
+  .description("remove the kimi-guard managed hook block from config.toml")
+  .action(() => {
+    const r = uninstallHooks();
+    console.log(r.removed ? `✓ removed managed block from ${r.configPath}` : `no managed block found in ${r.configPath}`);
+  });
+
+program
+  .command("hook")
+  .argument("<event>", "hook event name, e.g. PreToolUse")
+  .description("hook entrypoint invoked by Kimi Code CLI (reads JSON payload from stdin)")
+  .action(async (event: string) => {
+    process.exitCode = await runHook(event);
+  });
+
+program
+  .command("status")
+  .description("guard activity: calls, interventions, sessions, budget windows")
+  .action(() => cmdStatus());
+
+program
+  .command("doctor")
+  .description("verify environment: node, state db, kimi config, PATH, probe samples")
+  .action(() => {
+    process.exitCode = cmdDoctor();
+  });
+
+program
+  .command("budget")
+  .description("show the quota metering snapshot (windows, burn rate, projection)")
+  .option("-s, --session <id>", "session id (defaults to the most recent)")
+  .action((opts: { session?: string }) => {
+    const cfg = loadConfig();
+    const sid = opts.session ?? latestSessionId() ?? "unknown";
+    console.log(formatSnapshot(budgetSnapshot(sid, cfg.budget)));
+    const limits = resolveLimits(cfg.budget);
+    if (limits.weekly === 0) {
+      console.log(`\navailable plans: ${Object.keys(PLANS).join(", ")} — or set weekly/fiveHour in config`);
+    }
+  });
+
+program
+  .command("checkpoint")
+  .description("capture a research-state checkpoint for a session (also auto-captured on failures/interrupts)")
+  .option("-s, --session <id>", "session id (defaults to the most recent)")
+  .option("-r, --reason <text>", "why the checkpoint is being taken", "manual")
+  .action((opts: { session?: string; reason: string }) => {
+    const sid = opts.session ?? latestSessionId();
+    if (!sid) {
+      console.log("no recorded sessions yet");
+      return;
+    }
+    const cp = captureCheckpoint(sid, opts.reason);
+    if (!cp) {
+      console.log("nothing to checkpoint (no recent activity)");
+      return;
+    }
+    console.log(`✓ checkpoint saved: ${cp.path}`);
+    console.log(`  resume later with: kguard resume`);
+  });
+
+program
+  .command("resume")
+  .description("print a paste-ready context block built from the latest checkpoint")
+  .option("-f, --file <path>", "use a specific checkpoint file (defaults to the latest)")
+  .action((opts: { file?: string }) => {
+    const file = opts.file ?? latestCheckpointFile();
+    if (!file || !fs.existsSync(file)) {
+      console.log("no checkpoints found — run 'kguard checkpoint' first");
+      return;
+    }
+    const content = fs.readFileSync(file, "utf8");
+    const reason = /- reason: (.*)/.exec(content)?.[1] ?? "interrupted";
+    const idx = content.indexOf("## Observed activity");
+    const brief = idx >= 0 ? content.slice(idx) : content;
+    console.log(renderResumeBlock(brief, reason));
+  });
+
+const probe = program.command("probe").description("capture raw hook payloads for schema discovery");
+probe
+  .command("on")
+  .action(() => {
+    setMeta("probe_enabled", "1");
+    console.log(`✓ probe on → ${probeLogPath()}`);
+  });
+probe
+  .command("off")
+  .action(() => {
+    setMeta("probe_enabled", "0");
+    console.log("✓ probe off");
+  });
+probe
+  .command("show")
+  .option("-n, --last <n>", "how many samples to show", "10")
+  .action((opts: { last: string }) => {
+    if (!fs.existsSync(probeLogPath())) {
+      console.log("no probe samples yet — run 'kguard probe on' first");
+      return;
+    }
+    const lines = fs.readFileSync(probeLogPath(), "utf8").trim().split("\n").filter(Boolean);
+    for (const line of lines.slice(-Number(opts.last))) console.log(line);
+  });
+
+const cfgCmd = program.command("config").description("manage ~/.kimi-guard/config.toml");
+cfgCmd
+  .command("init")
+  .description("create the config file with documented defaults")
+  .action(() => {
+    console.log(writeConfigTemplate() ? `✓ created ${userConfigPath()}` : `already exists: ${userConfigPath()}`);
+  });
+cfgCmd
+  .command("path")
+  .action(() => {
+    console.log(userConfigPath());
+  });
+cfgCmd
+  .command("show")
+  .description("print the effective config (file values merged over defaults)")
+  .action(() => {
+    console.log(JSON.stringify(loadConfig(), null, 2));
+  });
+cfgCmd
+  .command("get <key>")
+  .description("print one effective value, e.g. budget.plan or repeat.maxRepeats")
+  .action((key: string) => {
+    const cfg = loadConfig() as unknown as Record<string, unknown>;
+    const value = key.split(".").reduce<unknown>((acc, k) => (acc && typeof acc === "object" ? (acc as Record<string, unknown>)[k] : undefined), cfg);
+    console.log(value === undefined ? `<unset: ${key}>` : typeof value === "object" ? JSON.stringify(value) : String(value));
+  });
+
+program
+  .command("run")
+  .description("supervised headless run: spawns the agent in Wire mode, enforces loop guards, meters tokens, auto-checkpoints")
+  .argument("[prompt...]", "task prompt (or use --prompt)")
+  .option("-p, --prompt <text>", "task prompt")
+  .option("-e, --exec <command...>", "agent command to supervise (default: kimi --wire)")
+  .option("--max-steps <n>", "hard step cap (per turn)", "200")
+  .option("--max-minutes <n>", "hard wall-clock cap for the whole run", "30")
+  .option("--auto-resume <n>", "re-prompt with checkpoint brief after max_steps/kill-switch", "0")
+  .option("--max-verify-rounds <n>", "corrective rounds when the final message makes unbacked completion claims", "2")
+  .option("--no-steer", "disable soft mid-turn corrections")
+  .option("--max-steers <n>", "cap on steer injections", "5")
+  .option("--yolo", "auto-approve every approval request")
+  .option("--json", "print machine-readable report JSON")
+  .action(async (promptParts: string[], opts: {
+    prompt?: string; exec?: string[]; maxSteps: string; maxMinutes: string;
+    autoResume: string; maxVerifyRounds: string; steer: boolean; maxSteers: string; yolo?: boolean; json?: boolean;
+  }) => {
+    const prompt = opts.prompt ?? promptParts.join(" ");
+    if (!prompt.trim()) {
+      console.error("error: a prompt is required (argument or --prompt)");
+      process.exit(1);
+    }
+    const report = await runSupervised({
+      prompt,
+      command: opts.exec ?? ["kimi", "--wire"],
+      maxSteps: Number(opts.maxSteps),
+      maxMinutes: Number(opts.maxMinutes),
+      steerOnWarn: opts.steer,
+      maxSteers: Number(opts.maxSteers),
+      autoResume: Number(opts.autoResume),
+      maxVerifyRounds: Number(opts.maxVerifyRounds),
+      approval: opts.yolo ? "approve" : "reject",
+      json: Boolean(opts.json),
+    });
+    if (opts.json) console.log(JSON.stringify(report, null, 2));
+    else console.log(formatReport(report));
+    process.exitCode = report.endReason === "finished" ? 0 : 2;
+  });
+
+program.parseAsync(process.argv).catch((err: Error) => {
+  process.stderr.write(`[kimi-guard] ${err.message}\n`);
+  process.exit(1);
+});
