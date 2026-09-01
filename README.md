@@ -16,7 +16,7 @@
 
 <div align="center">
 
-![kimi-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif)
+![kimi-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif?v=0.6.1)
 
 *Real terminal session: install → verify → a supervised run where the circuit breaker catches a looping tool call → live status & budget panels. Recorded with [vhs](https://github.com/charmbracelet/vhs) from actual commands ([demo.tape](assets/demo.tape)).*
 
