@@ -6,7 +6,7 @@ shim: the enforcement engine is the `agentguard` CLI.
 ## Install
 
 ```sh
-npm i -g agentguard   # the guard engine (hooks fail-open without it)
+npm i -g @shidesheng0218/agentguard   # the guard engine (hooks fail-open without it)
 ```
 
 Then in Claude Code:

@@ -217,7 +217,7 @@ export function cmdDoctor(): number {
   check(
     which.status === 0 || Boolean(process.argv[1]?.includes("agentguard") || process.argv[1]?.includes("kimi-guard")),
     "agentguard resolves on PATH",
-    "agentguard is not on PATH — hook commands will fail-open. Install globally: npm i -g agentguard",
+    "agentguard is not on PATH — hook commands will fail-open. Install globally: npm i -g @shidesheng0218/agentguard",
   );
 
   const probeFile = probeLogPath();

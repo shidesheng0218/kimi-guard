@@ -4,7 +4,7 @@
 
 **给 Kimi Code CLI 和 Claude Code 加一层运行时行为守护：在 Agent 失控烧掉你的额度之前把它拦下来。**
 
-`npm i -g agentguard && agentguard install` → 装完即用（自动探测已安装的 harness)。老用户：`kguard`/`kimi-guard` 命令继续可用。
+`npm i -g @shidesheng0218/agentguard && agentguard install` → 装完即用（自动探测已安装的 harness)。老用户：`kguard`/`kimi-guard` 命令继续可用。
 
 </div>
 
@@ -61,7 +61,7 @@ kimi-guard 不是预设包，而是一个**运行时行为分析与执行引擎*
 ## 安装
 
 ```sh
-npm i -g agentguard
+npm i -g @shidesheng0218/agentguard
 agentguard install    # 自动探测并接管已装的 harness
                       #（Kimi Code: ~/.kimi-code/config.toml · Claude Code: ~/.claude/settings.json）
 agentguard doctor     # 自检

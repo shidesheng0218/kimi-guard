@@ -1,6 +1,9 @@
 {
-  "name": "agentguard",
+  "name": "@shidesheng0218/agentguard",
   "version": "0.8.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Runtime behavior guard for coding agents (Kimi Code CLI & Claude Code): loop detection, quota gates, checkpoint/resume, supervised Wire runs",
   "type": "module",
   "license": "MIT",

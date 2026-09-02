@@ -8,7 +8,7 @@
     {
       "name": "agent-guard",
       "source": "./claude-plugin",
-      "description": "Runtime behavior guard for Claude Code: loop detection, quota gates, completion gate, checkpoints. Requires the CLI (npm i -g agentguard) — hooks fail-open without it.",
+      "description": "Runtime behavior guard for Claude Code: loop detection, quota gates, completion gate, checkpoints. Requires the CLI (npm i -g @shidesheng0218/agentguard) — hooks fail-open without it.",
       "version": "0.8.0",
       "author": {
         "name": "Mike Shi"

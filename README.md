@@ -4,9 +4,9 @@
 
 **A runtime behavior guard for coding agents — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) and [Claude Code](https://code.claude.com) — stop runaway agent loops before they burn your quota.**
 
-`npm i -g agentguard && agentguard install` → done. (Existing users: `kguard`/`kimi-guard` keep working as aliases.)
+`npm i -g @shidesheng0218/agentguard && agentguard install` → done. (Existing users: `kguard`/`kimi-guard` keep working as aliases.)
 
-[![npm](https://img.shields.io/npm/v/agentguard?style=flat-square)](https://www.npmjs.com/package/agentguard)
+[![npm](https://img.shields.io/npm/v/@shidesheng0218/agentguard?style=flat-square)](https://www.npmjs.com/package/@shidesheng0218/agentguard)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/shidesheng0218/kimi-guard/ci.yml?style=flat-square&label=CI)](/.github/workflows/ci.yml)
 
@@ -67,7 +67,7 @@ Everything is **fail-open**: if kimi-guard itself errors, the agent keeps workin
 ## Install
 
 ```sh
-npm i -g agentguard
+npm i -g @shidesheng0218/agentguard
 agentguard install    # writes managed hooks into every detected harness
                       # (Kimi Code: ~/.kimi-code/config.toml · Claude Code: ~/.claude/settings.json)
 agentguard doctor     # verify
