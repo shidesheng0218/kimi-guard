@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 — 2026-09-01
+
+- 🗳️ **False-positive feedback loop**: every block message now carries its block id (`block #N recorded — if this was a false positive, run: kguard feedback fp N`). New commands: `kguard blocks` (recent blocks with ids), `kguard feedback fp|tp <id>`.
+- 📊 **Intervention quality in `kguard status`**: per-detector block counts with FP/confirmed rates, plus calibration hints when a detector's FP rate exceeds 30% (with ≥5 samples) — suggests the exact config key to raise.
+- 📤 **`kguard report [--json]`**: anonymized aggregate export (detector block counts, FP rates, budget window levels, session count) — no args, paths, commands or session ids. Source material for public runaway-pattern reports.
+- 🗃️ **Additive schema migration (v2→v3)**: the `feedback` column is added without dropping history — block records are calibration data, not disposable state.
+- 🏷️ **Hooks path now records the detector kind** on each block (`repeat`, `churn`, `budget`, …) instead of a generic `intervention` label — required for per-detector quality stats. (Wire mode already did this.)
+
 ## 0.6.2 — 2026-09-01
 
 - 🧭 **Canonical tool taxonomy**: new `[tools]` config section (`edit` / `read` / `search` / `shell`) — the single place to update if a CLI version renames tools. Replaces six hardcoded lists scattered across analysis, verify, veto and checkpoint (which had already drifted apart). Legacy `[churn] tools` and `[verify] shellTools` keys remain supported.

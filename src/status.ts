@@ -4,7 +4,7 @@ import pc from "picocolors";
 import { loadConfig } from "./config.js";
 import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath } from "./paths.js";
 import { hooksInstalled } from "./installer.js";
-import { buildStatus, openDb, knownSessions, getMeta } from "./store.js";
+import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, type BlockKindStat } from "./store.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
@@ -20,6 +20,69 @@ function warn(msg: string): void {
 
 function fail(msg: string): void {
   console.log(`${pc.red("✗")} ${msg}`);
+}
+
+/** Config knob to raise when a detector misfires too often. */
+const CALIBRATION_KEYS: Record<string, string> = {
+  repeat: "repeat.maxRepeats",
+  nearRepeat: "nearRepeat.blockAt",
+  noGain: "noGain.blockAt",
+  churn: "churn.blockAt",
+  noProgress: "noProgress.blockAt",
+  explore: "explore.blockAt",
+  budget: "budget.reservePercent",
+  cycle: "cycle.enabled = false",
+  verify: "verify.blockOnNoEvidence = false (or enable verify.veto)",
+  killSwitch: "policy.maxBlocksPerSession",
+};
+
+/**
+ * Calibration hints from user feedback: a detector whose blocks are marked
+ * false-positive in more than 30% of cases (with ≥5 samples) is too tight.
+ */
+export function calibrationHints(stats: BlockKindStat[]): string[] {
+  const hints: string[] = [];
+  for (const s of stats) {
+    if (s.n < 5) continue;
+    const rate = s.fp / s.n;
+    if (rate > 0.3) {
+      const key = CALIBRATION_KEYS[s.kind] ?? `${s.kind} thresholds`;
+      hints.push(`${s.kind}: ${s.fp}/${s.n} blocks marked false positive (${Math.round(rate * 100)}%) — consider raising ${key}`);
+    }
+  }
+  return hints;
+}
+
+/**
+ * Anonymized aggregate for `kguard report` — the raw material for public
+ * runaway-pattern reports. Contains counts and rates only: no args, paths,
+ * commands, or session identifiers.
+ */
+export function buildGuardReport(cfg = loadConfig()): Record<string, unknown> {
+  const s = buildStatus();
+  const detectors = blockKindStats().map((k) => ({
+    kind: k.kind,
+    blocks: k.n,
+    falsePositives: k.fp,
+    confirmed: k.tp,
+    fpRate: k.n > 0 ? Math.round((k.fp / k.n) * 100) / 100 : 0,
+  }));
+  const sid = latestSessionId() ?? "unknown";
+  const snap = budgetSnapshot(sid, cfg.budget);
+  return {
+    tool: "kimi-guard",
+    generatedAt: new Date().toISOString(),
+    sessions: knownSessions(1000).length,
+    calls24h: s.calls24h,
+    blocks24h: s.blocks24h.reduce((acc, b) => acc + b.n, 0),
+    detectors,
+    budget: {
+      plan: cfg.budget.plan,
+      precise: snap.precise,
+      fiveHourPercent: snap.fiveHour.percent,
+      weeklyPercent: snap.weekly.percent,
+    },
+  };
 }
 
 /** Best-effort detection of a running Kimi CLI process (unix only). */
@@ -52,6 +115,16 @@ export function cmdStatus(): void {
   console.log(`  tool calls (24h):    ${s.calls24h}`);
   const parts24 = s.blocks24h.map((b) => `${b.kind}×${b.n}`).join(", ");
   console.log(`  interventions (24h): ${parts24 || "none"}`);
+  const stats = blockKindStats();
+  const withFeedback = stats.filter((k) => k.fp + k.tp > 0);
+  if (withFeedback.length > 0) {
+    console.log("  intervention quality (all time):");
+    for (const k of stats) {
+      const rate = k.n > 0 ? Math.round((k.fp / k.n) * 100) : 0;
+      console.log(`    ${k.kind.padEnd(12)} blocks=${k.n}  fp=${k.fp} (${rate}%)  confirmed=${k.tp}`);
+    }
+    for (const h of calibrationHints(stats)) console.log(`  ${pc.yellow("!")} calibration: ${h}`);
+  }
   if (s.events24h.length > 0) {
     console.log(`  agent events (24h):  ${s.events24h.map((e) => `${e.kind}×${e.n}`).join(", ")}`);
   }

@@ -10,7 +10,7 @@ function sqliteCtor(): typeof DatabaseSync {
   return (nodeRequire("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS calls (
@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS blocks (
   session_id TEXT NOT NULL,
   tool_name TEXT NOT NULL,
   kind TEXT NOT NULL,
-  ts INTEGER NOT NULL
+  ts INTEGER NOT NULL,
+  feedback TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_session ON blocks(session_id, ts);
 CREATE TABLE IF NOT EXISTS meta (
@@ -68,15 +69,26 @@ function migrate(d: DatabaseSync): void {
   d.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);");
   const row = d.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as { v: string } | undefined;
   const version = row ? Number(row.v) : 0;
-  if (version !== SCHEMA_VERSION) {
+  if (version === SCHEMA_VERSION) {
+    d.exec(SCHEMA);
+    return;
+  }
+  if (version === 2) {
+    // v2 → v3: additive (feedback column on blocks). History is an asset — keep it.
+    d.exec(SCHEMA);
+    try {
+      d.exec("ALTER TABLE blocks ADD COLUMN feedback TEXT");
+    } catch {
+      /* column already exists */
+    }
+  } else {
+    // v0/v1: dev-stage schemas, safe to rebuild
     d.exec("DROP TABLE IF EXISTS calls; DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS blocks;");
     d.exec(SCHEMA);
-    d.prepare(
-      "INSERT INTO meta (k, v) VALUES ('schema_version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-    ).run(String(SCHEMA_VERSION));
-  } else {
-    d.exec(SCHEMA);
   }
+  d.prepare(
+    "INSERT INTO meta (k, v) VALUES ('schema_version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+  ).run(String(SCHEMA_VERSION));
 }
 
 export function resetDbForTests(): void {
@@ -156,10 +168,50 @@ export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: numbe
   return row?.m ?? null;
 }
 
-export function recordBlock(sessionId: string, toolName: string, kind: string, ts = Date.now()): void {
-  openDb()
+export function recordBlock(sessionId: string, toolName: string, kind: string, ts = Date.now()): number {
+  const info = openDb()
     .prepare("INSERT INTO blocks (session_id, tool_name, kind, ts) VALUES (?, ?, ?, ?)")
     .run(sessionId, toolName, kind, ts);
+  return Number(info.lastInsertRowid);
+}
+
+export interface BlockRow {
+  id: number;
+  session_id: string;
+  tool_name: string;
+  kind: string;
+  ts: number;
+  feedback: string | null;
+}
+
+export function listBlocks(limit = 20): BlockRow[] {
+  return openDb()
+    .prepare("SELECT id, session_id, tool_name, kind, ts, feedback FROM blocks ORDER BY id DESC LIMIT ?")
+    .all(limit) as unknown as BlockRow[];
+}
+
+export function setBlockFeedback(id: number, verdict: "fp" | "tp"): boolean {
+  const info = openDb().prepare("UPDATE blocks SET feedback = ? WHERE id = ?").run(verdict, id);
+  return Number(info.changes) > 0;
+}
+
+export interface BlockKindStat {
+  kind: string;
+  n: number;
+  fp: number;
+  tp: number;
+}
+
+export function blockKindStats(): BlockKindStat[] {
+  const rows = openDb()
+    .prepare(
+      `SELECT kind, COUNT(*) AS n,
+              SUM(CASE WHEN feedback = 'fp' THEN 1 ELSE 0 END) AS fp,
+              SUM(CASE WHEN feedback = 'tp' THEN 1 ELSE 0 END) AS tp
+       FROM blocks GROUP BY kind ORDER BY n DESC`,
+    )
+    .all() as Array<{ kind: string; n: number; fp: number; tp: number }>;
+  return rows.map((r) => ({ kind: r.kind, n: Number(r.n), fp: Number(r.fp), tp: Number(r.tp) }));
 }
 
 export function countBlocks(sessionId: string, sinceTs: number): number {

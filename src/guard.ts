@@ -3,7 +3,7 @@ import { callsSince, countBlocks, getMeta, recordBlock, recordCall, recordEvent,
 import { probeLogPath } from "./paths.js";
 import type { GuardConfig } from "./config.js";
 import { analyzeCall } from "./analysis.js";
-import { resolveFindings } from "./policy.js";
+import { isKillSwitchTripped, resolveFindings } from "./policy.js";
 import { evaluateBudgetGate } from "./meter.js";
 import { captureCheckpoint } from "./checkpoint.js";
 import { hasEvidence, hasRecentEdits, HOOKS_STOP_BLOCK_REASON } from "./verify.js";
@@ -83,8 +83,8 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       if (!cfg.verify.enabled || !cfg.verify.blockOnNoEvidence) return { code: 0 };
       if (!hasRecentEdits(sessionId, cfg, now)) return { code: 0 };
       if (hasEvidence(sessionId, cfg, now)) return { code: 0 };
-      recordBlock(sessionId, "Stop", "verify", now);
-      return { code: 2, stderr: HOOKS_STOP_BLOCK_REASON };
+      const id = recordBlock(sessionId, "Stop", "verify", now);
+      return { code: 2, stderr: HOOKS_STOP_BLOCK_REASON + feedbackHint(id) };
     }
     case "UserPromptSubmit": {
       return handleGoalAnchor(payload, sessionId, cfg, now);
@@ -119,6 +119,11 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
   }
 }
 
+/** Appended to every block message: the feedback loop's entry point. */
+function feedbackHint(id: number): string {
+  return `\n[kimi-guard] block #${id} recorded. If this was a false positive, run: kguard feedback fp ${id}`;
+}
+
 function noteNormalizeMiss(now: number): void {
   try {
     const misses = Number(getMeta("normalize_misses") ?? "0") + 1;
@@ -149,8 +154,13 @@ function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload,
   const decision = resolveFindings(analysis.findings, { blocksInSession, cfg: cfg.policy });
 
   if (decision.action === "block") {
-    recordBlock(sessionId, call.tool, "intervention", now);
-    return { code: 2, stderr: decision.blockReason };
+    // Record the DETECTOR kind (repeat/churn/budget/...), not a generic label —
+    // per-detector stats power the false-positive feedback loop.
+    const kind = isKillSwitchTripped(blocksInSession, cfg.policy)
+      ? "killSwitch"
+      : (analysis.findings.find((f) => f.severity === "block")?.kind ?? "unknown");
+    const id = recordBlock(sessionId, call.tool, kind, now);
+    return { code: 2, stderr: decision.blockReason + feedbackHint(id) };
   }
   if (decision.action === "warn" && decision.contextHint) {
     return { code: 0, stdout: decision.contextHint };

@@ -4,8 +4,8 @@ import { version } from "./version.js";
 import { loadConfig, writeConfigTemplate } from "./config.js";
 import { installHooks, uninstallHooks } from "./installer.js";
 import { runHook } from "./hook.js";
-import { setMeta } from "./store.js";
-import { cmdStatus, cmdDoctor } from "./status.js";
+import { setMeta, listBlocks, setBlockFeedback } from "./store.js";
+import { cmdStatus, cmdDoctor, buildGuardReport } from "./status.js";
 import { probeLogPath, userConfigPath } from "./paths.js";
 import { captureCheckpoint, latestSessionId, latestCheckpointFile, renderResumeBlock } from "./checkpoint.js";
 import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js";
@@ -115,6 +115,69 @@ program
     const idx = content.indexOf("## Observed activity");
     const brief = idx >= 0 ? content.slice(idx) : content;
     console.log(renderResumeBlock(brief, reason));
+  });
+
+program
+  .command("blocks")
+  .description("list recent guard blocks (with ids for feedback)")
+  .option("-n, --last <n>", "how many blocks to show", "20")
+  .action((opts: { last: string }) => {
+    const rows = listBlocks(Number(opts.last));
+    if (rows.length === 0) {
+      console.log("no blocks recorded yet");
+      return;
+    }
+    for (const r of rows) {
+      const fb = r.feedback ? ` [${r.feedback === "fp" ? "FALSE POSITIVE" : "confirmed"}]` : "";
+      console.log(`#${r.id}  ${new Date(r.ts).toISOString()}  ${r.kind}  ${r.tool_name}  session=${r.session_id.slice(0, 16)}${fb}`);
+    }
+    console.log(`\nmark a false positive: kguard feedback fp <id>   (confirmed: kguard feedback tp <id>)`);
+  });
+
+program
+  .command("feedback")
+  .description("mark a block as a false positive (fp) or confirmed (tp) — feeds detector calibration")
+  .argument("<verdict>", "fp | tp")
+  .argument("<id>", "block id from 'kguard blocks' or the block message")
+  .action((verdict: string, id: string) => {
+    if (verdict !== "fp" && verdict !== "tp") {
+      console.error("verdict must be 'fp' (false positive) or 'tp' (confirmed)");
+      process.exitCode = 1;
+      return;
+    }
+    if (setBlockFeedback(Number(id), verdict)) {
+      console.log(`✓ block #${id} marked ${verdict === "fp" ? "false positive" : "confirmed"}`);
+    } else {
+      console.error(`no block with id ${id} — see 'kguard blocks'`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("report")
+  .description("anonymized aggregate of guard activity (no args/paths/commands — safe to share)")
+  .option("--json", "print JSON (default is a text summary)")
+  .action((opts: { json?: boolean }) => {
+    const report = buildGuardReport() as {
+      generatedAt: string;
+      sessions: number;
+      calls24h: number;
+      blocks24h: number;
+      detectors: Array<{ kind: string; blocks: number; falsePositives: number; confirmed: number; fpRate: number }>;
+      budget: { plan: string; precise: boolean; fiveHourPercent: number; weeklyPercent: number };
+    };
+    if (opts.json) {
+      console.log(JSON.stringify({ ...report, version }, null, 2));
+      return;
+    }
+    console.log(`kimi-guard report (${report.generatedAt})`);
+    console.log(`  sessions: ${report.sessions}   calls 24h: ${report.calls24h}   blocks 24h: ${report.blocks24h}`);
+    if (report.detectors.length === 0) console.log("  detectors: no blocks recorded");
+    for (const d of report.detectors) {
+      console.log(`  ${d.kind.padEnd(12)} blocks=${d.blocks}  fp=${d.falsePositives} (${Math.round(d.fpRate * 100)}%)  tp=${d.confirmed}`);
+    }
+    console.log(`  budget: ${report.budget.plan}${report.budget.precise ? " (precise)" : ""}  5h=${report.budget.fiveHourPercent}%  weekly=${report.budget.weeklyPercent}%`);
+    console.log("  (aggregate only — no arguments, paths or commands are included)");
   });
 
 const probe = program.command("probe").description("capture raw hook payloads for schema discovery");

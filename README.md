@@ -108,8 +108,11 @@ timeout = 5
 ```sh
 kguard install          # add hook rules to the Kimi config (idempotent)
 kguard uninstall        # remove the managed hook block
-kguard status           # calls, interventions, sessions, budget windows
+kguard status           # calls, interventions, sessions, budget windows + intervention quality
 kguard budget           # quota metering snapshot: windows, burn rate, projection
+kguard blocks [-n N]    # recent blocks with ids
+kguard feedback fp|tp <id>  # mark a block false-positive / confirmed — calibrates detectors
+kguard report [--json]  # anonymized aggregate export (safe to share)
 kguard checkpoint       # capture a research-state checkpoint now
 kguard resume           # print a paste-ready context block from the latest checkpoint
 kguard run -- <prompt>  # supervised headless run in Wire mode (see below)

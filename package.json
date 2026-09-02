@@ -1,6 +1,6 @@
 {
   "name": "kimi-guard",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Runtime behavior guard for Kimi Code CLI: loop detection, quota gates, checkpoint/resume, supervised Wire runs",
   "type": "module",
   "license": "MIT",

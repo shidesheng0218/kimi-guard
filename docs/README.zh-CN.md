@@ -77,8 +77,11 @@ kguard doctor         # 自检
 ```sh
 kguard install          # 写入 hook 规则（幂等，首次自动备份）
 kguard uninstall        # 移除托管区块
-kguard status           # 调用量、干预记录、会话、预算窗口
+kguard status           # 调用量、干预记录、会话、预算窗口 + 干预质量（误报率）
 kguard budget           # 配额计量快照：窗口、燃烧率、耗尽预测
+kguard blocks [-n N]    # 最近的拦截记录（带 id）
+kguard feedback fp|tp <id>  # 标记误报/确认拦截——喂给检测器校准
+kguard report [--json]  # 匿名聚合导出（可安全分享）
 kguard checkpoint       # 立即捕获一次研究状态快照
 kguard resume           # 输出可直接粘贴的恢复上下文块
 kguard run -- <任务描述>  # Wire 模式下的受监督无人值守运行（见下）
