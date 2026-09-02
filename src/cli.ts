@@ -9,6 +9,7 @@ import { cmdStatus, cmdDoctor } from "./status.js";
 import { probeLogPath, userConfigPath } from "./paths.js";
 import { captureCheckpoint, latestSessionId, latestCheckpointFile, renderResumeBlock } from "./checkpoint.js";
 import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js";
+import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
 
 const program = new Command();
@@ -65,8 +66,12 @@ program
   .command("budget")
   .description("show the quota metering snapshot (windows, burn rate, projection)")
   .option("-s, --session <id>", "session id (defaults to the most recent)")
-  .action((opts: { session?: string }) => {
+  .action(async (opts: { session?: string }) => {
     const cfg = loadConfig();
+    if (cfg.budget.precise) {
+      const p = await refreshPreciseUsage(cfg.budget);
+      if (!p) console.error("[kimi-guard] precise metering unavailable (missing KIMI_API_KEY or API error) — showing event-based estimates");
+    }
     const sid = opts.session ?? latestSessionId() ?? "unknown";
     console.log(formatSnapshot(budgetSnapshot(sid, cfg.budget)));
     const limits = resolveLimits(cfg.budget);

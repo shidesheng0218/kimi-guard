@@ -1,5 +1,6 @@
 import { callsSince, getMeta, setMeta } from "./store.js";
 import type { GuardConfig } from "./config.js";
+import { editTools, shellTools } from "./toolsets.js";
 
 export const DEFAULT_CLAIM_PATTERNS = [
   /\btests?\b.{0,40}\b(pass(?:ed|ing)?|green)\b/i,
@@ -67,11 +68,11 @@ export function hasEvidence(sessionId: string, cfg: GuardConfig, now = Date.now(
     cfg.verify.evidencePatterns.length > 0
       ? cfg.verify.evidencePatterns.map((p) => new RegExp(p))
       : DEFAULT_EVIDENCE_PATTERNS;
-  const shellTools = new Set(cfg.verify.shellTools.length > 0 ? cfg.verify.shellTools : ["Shell", "Bash"]);
+  const shells = shellTools(cfg);
   const calls = callsSince(sessionId, since, 400);
   for (const r of calls) {
     if (r.status !== "ok") continue;
-    if (!shellTools.has(r.tool_name)) continue;
+    if (!shells.has(r.tool_name)) continue;
     try {
       const args = JSON.parse(r.args_json) as { command?: string };
       const cmd = args.command ?? "";
@@ -99,9 +100,9 @@ export function unvouch(sessionId: string): void {
  */
 export function hasRecentEdits(sessionId: string, cfg: GuardConfig, now = Date.now()): boolean {
   const since = now - cfg.verify.evidenceWindowMinutes * 60_000;
-  const editTools = new Set(cfg.churn.tools.length > 0 ? cfg.churn.tools : ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit"]);
+  const edits = editTools(cfg);
   return callsSince(sessionId, since, 400).some(
-    (r) => r.status === "ok" && editTools.has(r.tool_name),
+    (r) => r.status === "ok" && edits.has(r.tool_name),
   );
 }
 

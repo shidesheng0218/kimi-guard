@@ -1,8 +1,16 @@
 import fs from "node:fs";
 import { parse as parseToml } from "smol-toml";
 import { userConfigPath } from "./paths.js";
+import { DEFAULT_EDIT_TOOLS, DEFAULT_READ_TOOLS, DEFAULT_SEARCH_TOOLS, DEFAULT_SHELL_TOOLS } from "./toolsets.js";
 
 export interface GuardConfig {
+  /** canonical tool-name taxonomy — every tool-name classifier reads through here */
+  tools: {
+    edit: string[];
+    read: string[];
+    search: string[];
+    shell: string[];
+  };
   repeat: {
     enabled: boolean;
     maxRepeats: number;
@@ -30,6 +38,12 @@ export interface GuardConfig {
     blockAt: number;
   };
   nearRepeat: {
+    enabled: boolean;
+    windowMinutes: number;
+    warnAt: number;
+    blockAt: number;
+  };
+  explore: {
     enabled: boolean;
     windowMinutes: number;
     warnAt: number;
@@ -86,11 +100,21 @@ export interface GuardConfig {
     reservePercent: number;
     subagentWeight: number;
     warnPercent: number;
+    /** poll the official Kimi usage API (KIMI_API_KEY) for exact plan windows instead of event-based estimates */
+    precise: boolean;
+    preciseUrl: string;
+    preciseCacheSeconds: number;
   };
   probe: boolean;
 }
 
 export const defaultConfig: GuardConfig = {
+  tools: {
+    edit: [...DEFAULT_EDIT_TOOLS],
+    read: [...DEFAULT_READ_TOOLS],
+    search: [...DEFAULT_SEARCH_TOOLS],
+    shell: [...DEFAULT_SHELL_TOOLS],
+  },
   repeat: {
     enabled: true,
     maxRepeats: 3,
@@ -103,6 +127,7 @@ export const defaultConfig: GuardConfig = {
   cycle: { enabled: true, windowMinutes: 30 },
   noProgress: { enabled: true, windowMinutes: 30, warnAt: 15, blockAt: 25 },
   nearRepeat: { enabled: true, windowMinutes: 30, warnAt: 6, blockAt: 10 },
+  explore: { enabled: true, windowMinutes: 30, warnAt: 10, blockAt: 15 },
   verify: {
     enabled: true,
     blockOnNoEvidence: false,
@@ -139,12 +164,21 @@ export const defaultConfig: GuardConfig = {
     reservePercent: 10,
     subagentWeight: 5,
     warnPercent: 80,
+    precise: false,
+    preciseUrl: "",
+    preciseCacheSeconds: 300,
   },
   probe: false,
 };
 
 const CONFIG_TEMPLATE = `# kimi-guard configuration
 # Docs: https://github.com/shidesheng0218/kimi-guard
+
+[tools]                   # canonical tool-name taxonomy — if your CLI version renames tools, fix it HERE
+edit = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]
+read = ["ReadFile", "Read"]
+search = ["Grep", "Glob"]
+shell = ["Shell", "Bash"]
 
 [repeat]
 enabled = true
@@ -173,11 +207,17 @@ windowMinutes = 30
 warnAt = 6
 blockAt = 10
 
+[explore]                 # pure-exploration streak: reads/searches with no action in between
+enabled = true
+windowMinutes = 30
+warnAt = 10
+blockAt = 15
+
 [verify]                  # completion-claim gate: "tests pass" must be backed by a real run
 enabled = true
 blockOnNoEvidence = false # hooks path: block Stop when edits landed but nothing was verified
 evidenceWindowMinutes = 60
-shellTools = ["Shell", "Bash"]  # tool names that execute shell commands — evidence is searched in these
+# deprecated: shell tool names now live in [tools] shell (this key still works)
 
 [verify.veto]             # optional LLM veto vote to suppress false positives (self-critic style)
 enabled = false           # requires KIMI_GUARD_VETO_API_KEY in the environment
@@ -211,7 +251,7 @@ enabled = true
 windowMinutes = 30
 warnAt = 5
 blockAt = 10
-tools = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]
+# deprecated: edit tool names now live in [tools] edit (this key still works)
 
 [policy]
 killSwitch = true         # after maxBlocksPerSession interventions, block ALL tools
@@ -227,6 +267,9 @@ dispatchTools = ["Task", "Agent"]
 reservePercent = 10       # keep this much headroom for you, not the agent
 subagentWeight = 5        # ~requests each dispatched subagent costs
 warnPercent = 80
+precise = false           # poll the official Kimi usage API for exact windows (needs KIMI_API_KEY, sk-kimi-...)
+preciseUrl = ""           # default https://api.kimi.com/coding/v1
+preciseCacheSeconds = 300 # the API is rate-limited; cache aggressively. Falls back to event-based on any error
 
 [probe]
 enabled = false
@@ -242,6 +285,11 @@ function bool(v: unknown, fallback: boolean): boolean {
 
 function strArr(v: unknown, fallback: string[]): string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length > 0 ? (v as string[]) : fallback;
+}
+
+/** strArr variant that reports whether the key was actually provided (for legacy-alias resolution). */
+function strArrOrNull(v: unknown): string[] | null {
+  return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length > 0 ? (v as string[]) : null;
 }
 
 export function loadConfig(configPath = userConfigPath()): GuardConfig {
@@ -262,6 +310,16 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
 
   const section = (name: string): Record<string, unknown> =>
     (data[name] as Record<string, unknown> | undefined) ?? {};
+
+  const tools = section("tools");
+  const toolsEdit = strArrOrNull(tools["edit"]);
+  const toolsRead = strArrOrNull(tools["read"]);
+  const toolsSearch = strArrOrNull(tools["search"]);
+  const toolsShell = strArrOrNull(tools["shell"]);
+  if (toolsEdit) cfg.tools.edit = toolsEdit;
+  if (toolsRead) cfg.tools.read = toolsRead;
+  if (toolsSearch) cfg.tools.search = toolsSearch;
+  if (toolsShell) cfg.tools.shell = toolsShell;
 
   const repeat = section("repeat");
   cfg.repeat.enabled = bool(repeat["enabled"], cfg.repeat.enabled);
@@ -290,6 +348,12 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   cfg.nearRepeat.warnAt = num(nearRepeat["warnAt"], cfg.nearRepeat.warnAt);
   cfg.nearRepeat.blockAt = num(nearRepeat["blockAt"], cfg.nearRepeat.blockAt);
 
+  const explore = section("explore");
+  cfg.explore.enabled = bool(explore["enabled"], cfg.explore.enabled);
+  cfg.explore.windowMinutes = num(explore["windowMinutes"], cfg.explore.windowMinutes);
+  cfg.explore.warnAt = num(explore["warnAt"], cfg.explore.warnAt);
+  cfg.explore.blockAt = num(explore["blockAt"], cfg.explore.blockAt);
+
   const verify = section("verify");
   cfg.verify.enabled = bool(verify["enabled"], cfg.verify.enabled);
   cfg.verify.blockOnNoEvidence = bool(verify["blockOnNoEvidence"], cfg.verify.blockOnNoEvidence);
@@ -299,6 +363,9 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   const evidence = verify["evidencePatterns"];
   if (Array.isArray(evidence)) cfg.verify.evidencePatterns = evidence.filter((c): c is string => typeof c === "string");
   cfg.verify.shellTools = strArr(verify["shellTools"], cfg.verify.shellTools);
+  // legacy alias: [verify] shellTools overrides [tools] shell unless [tools] was set explicitly
+  const legacyShellTools = strArrOrNull(verify["shellTools"]);
+  if (legacyShellTools && !toolsShell) cfg.tools.shell = legacyShellTools;
   const veto = verify["veto"] as Record<string, unknown> | undefined;
   if (veto) {
     cfg.verify.veto.enabled = bool(veto["enabled"], cfg.verify.veto.enabled);
@@ -334,6 +401,9 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   cfg.churn.warnAt = num(churn["warnAt"], cfg.churn.warnAt);
   cfg.churn.blockAt = num(churn["blockAt"], cfg.churn.blockAt);
   cfg.churn.tools = strArr(churn["tools"], cfg.churn.tools);
+  // legacy alias: [churn] tools overrides [tools] edit unless [tools] was set explicitly
+  const legacyChurnTools = strArrOrNull(churn["tools"]);
+  if (legacyChurnTools && !toolsEdit) cfg.tools.edit = legacyChurnTools;
 
   const policy = section("policy");
   cfg.policy.killSwitch = bool(policy["killSwitch"], cfg.policy.killSwitch);
@@ -349,8 +419,15 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   cfg.budget.reservePercent = num(budget["reservePercent"], cfg.budget.reservePercent);
   cfg.budget.subagentWeight = num(budget["subagentWeight"], cfg.budget.subagentWeight);
   cfg.budget.warnPercent = num(budget["warnPercent"], cfg.budget.warnPercent);
+  cfg.budget.precise = bool(budget["precise"], cfg.budget.precise);
+  cfg.budget.preciseUrl = typeof budget["preciseUrl"] === "string" ? budget["preciseUrl"] : cfg.budget.preciseUrl;
+  cfg.budget.preciseCacheSeconds = num(budget["preciseCacheSeconds"], cfg.budget.preciseCacheSeconds);
 
   cfg.probe = bool(section("probe")["enabled"], cfg.probe);
+
+  // keep the deprecated mirror fields consistent with the resolved taxonomy
+  cfg.verify.shellTools = cfg.tools.shell;
+  cfg.churn.tools = cfg.tools.edit;
   return cfg;
 }
 

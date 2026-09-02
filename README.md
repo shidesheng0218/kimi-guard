@@ -47,6 +47,7 @@ kimi-guard is not a preset pack — it is a **runtime behavior analysis and enfo
 | 📉 **No-information-gain** | different arguments, byte-identical output — the model is spinning without new data (the real root cause of upstream [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142) Case B) | warn → block |
 | ✏️ **Edit churn** | the same file edited over and over without converging ("thrashing") | warn → block |
 | 🐢 **No-progress stretch** | long run of tool calls with no successful edit landing — motion without progress | warn → block |
+| 🔭 **Exploration drift** | long streak of read/search calls with no action in between — exploring without implementing | warn → block |
 | 🎯 **Goal anchor** | re-injects the original task verbatim every N prompts/steps and always after compaction — the two moments a long session drifts off-target | context injection |
 | 🚦 **Quota gate** | request accounting against Kimi Coding Plan windows (5h/weekly) with burn-rate projection; dispatches are blocked before the window is exhausted | warn → block |
 | 🔌 **Kill switch** | after N interventions in a session, block ALL tools and order the model to summarize and end its turn — the fuse for unattended/CI runs | full stop |
@@ -145,6 +146,12 @@ What the supervisor does in-process (no shell hooks, no exit codes):
 `~/.kimi-guard/config.toml` (see `kguard config init`; full annotated template included):
 
 ```toml
+[tools]                 # canonical tool-name taxonomy — if your CLI renames tools, fix it HERE
+edit = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]
+read = ["ReadFile", "Read"]
+search = ["Grep", "Glob"]
+shell = ["Shell", "Bash"]     # verify evidence + veto context read this (legacy [verify] shellTools still works)
+
 [repeat]                # exact/near-duplicate repetition
 maxRepeats = 3
 warnAt = 2              # soft context warning before the hard block
@@ -177,11 +184,14 @@ warnPercent = 85        # steer a wrap-up warning when the context is this full
 warnAt = 6
 blockAt = 10
 
+[explore]               # pure-exploration streak: reads/searches with no action in between
+warnAt = 10
+blockAt = 15
+
 [verify]                # completion-claim gate
 enabled = true
 blockOnNoEvidence = false  # hooks path: block Stop when edits landed but nothing was verified
 evidenceWindowMinutes = 60
-shellTools = ["Shell", "Bash"]  # tool names that execute shell commands (evidence is searched in these)
 
 [verify.veto]           # optional false-positive suppression vote (off by default, zero deps when off)
 enabled = false         # requires KIMI_GUARD_VETO_API_KEY in the environment (any OpenAI-compatible endpoint)
@@ -200,6 +210,8 @@ maxBlocksPerSession = 5
 plan = "tier1"          # tier1: 1024/week | tier2: 2048 | tier3: 7168 (200 per 5h)
 reservePercent = 10     # headroom the agent is never allowed to eat
 subagentWeight = 5      # ~requests each dispatched subagent costs
+precise = false         # poll the official Kimi usage API for exact windows (needs KIMI_API_KEY, sk-kimi-...)
+                        # falls back to event-based estimates on any error — fail-open
 ```
 
 ## How it works
@@ -210,7 +222,7 @@ flowchart LR
         A["tool call"] -->|"hook event / Wire msg"| B
     end
     subgraph GUARD["kimi-guard"]
-        B["Normalization layer<br/>schema-variant tolerant<br/>+ output hashing"] --> C["Analyzers (pure functions)<br/>repeat · cycle · no-gain · churn<br/>no-progress · near-repeat"]
+        B["Normalization layer<br/>schema-variant tolerant<br/>+ output hashing"] --> C["Analyzers (pure functions)<br/>repeat · cycle · no-gain · churn<br/>no-progress · near-repeat · explore"]
         M["Budget engine<br/>5h/weekly windows<br/>burn-rate projection"] --> C
         C --> D["Policy engine<br/>findings → action<br/>+ kill switch"]
     end
@@ -269,7 +281,7 @@ Kimi Code CLI ──hook event──▶ kguard hook <event> (JSON on stdin)
 ## Roadmap
 
 - [ ] **v0.7** — per-agent model routing (needs upstream `model` field on subagent dispatch, [#2533](https://github.com/MoonshotAI/kimi-cli/issues/2533)); git-worktree partial-work isolation for parallel agents
-- [ ] exact plan-usage windows once Kimi exposes a plan-usage API (current windows are event-based approximations, biased conservative)
+- [x] exact plan-usage windows via the official Kimi usage API (v0.6.2, `[budget] precise = true`; event-based estimates remain the fail-open fallback)
 - [ ] cross-harness adapters — see [docs/PORTING.md](docs/PORTING.md) for the reusable-core checklist
 
 ## Ecosystem fit

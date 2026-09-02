@@ -24,7 +24,7 @@
 
   <g font-size="15" fill="#c9d1d9">
     <rect x="162" y="196" width="196" height="32" rx="16" fill="#1f2739" stroke="#3b82f6" stroke-opacity="0.55"/>
-    <text x="180" y="217">🧠 13 loop detectors</text>
+    <text x="180" y="217">🧠 14 loop detectors</text>
     <rect x="370" y="196" width="180" height="32" rx="16" fill="#1f2739" stroke="#a855f7" stroke-opacity="0.55"/>
     <text x="386" y="217">🎯 mid-turn steer</text>
     <rect x="562" y="196" width="196" height="32" rx="16" fill="#1f2739" stroke="#22d3ee" stroke-opacity="0.55"/>

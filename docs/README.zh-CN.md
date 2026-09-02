@@ -43,6 +43,7 @@ kimi-guard 不是预设包，而是一个**运行时行为分析与执行引擎*
 | 📉 **无信息增益** | 参数不同但输出逐字节相同——模型在空转打转（上游 [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142) Case B 的真正根因） | 警告 → 阻断 |
 | ✏️ **编辑抖动** | 同一文件被反复修改却不收敛（thrashing） | 警告 → 阻断 |
 | 🐢 **无进展串** | 长串工具调用没有任何成功落盘的编辑——只有动作没有进展 | 警告 → 阻断 |
+| 🔭 **探索漂移** | 连续一长串读/搜索调用却没有任何动作——只看不改 | 警告 → 阻断 |
 | 🎯 **目标锚定** | 每 N 个 prompt/步重新注入原始任务原文，compaction 后必注入——长会话跑偏的两个高发时刻 | 上下文注入 |
 | 🚦 **配额闸门** | 针对 Kimi Coding Plan 的请求计量（5h/周窗口）+ 燃烧率预测，窗口耗尽前提前禁止派发 | 警告 → 阻断 |
 | 🔌 **保险丝** | 单会话干预 N 次后封锁全部工具，强制模型总结收尾——无人值守/CI 场景的最后一道保险 | 全停 |
@@ -112,6 +113,12 @@ kguard run "重构 auth 模块并让测试通过" \
 `~/.kimi-guard/config.toml`（`kguard config init` 生成带注释模板，`kguard config show` 查看生效值）：
 
 ```toml
+[tools]                 # 工具名分类学——CLI 改名工具时只需改这里
+edit = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]
+read = ["ReadFile", "Read"]
+search = ["Grep", "Glob"]
+shell = ["Shell", "Bash"]     # verify 证据与否决票上下文从这里读（旧的 [verify] shellTools 仍然兼容）
+
 [repeat]                # 精确/近似重复
 maxRepeats = 3
 warnAt = 2              # 硬阻断前的软警告（注入上下文）
@@ -144,11 +151,14 @@ warnPercent = 85        # 上下文填充到该比例时 steer 收尾提醒
 warnAt = 6
 blockAt = 10
 
+[explore]               # 纯探索长串：连续读/搜索但无动作——只看不改
+warnAt = 10
+blockAt = 15
+
 [verify]                # 完工声明闸门
 enabled = true
 blockOnNoEvidence = false  # hooks 路径：有编辑落盘但零验证时阻断 Stop
 evidenceWindowMinutes = 60
-shellTools = ["Shell", "Bash"]  # 执行 shell 命令的工具名（证据在这些工具的调用历史里找）
 
 [verify.veto]           # 可选的误报抑制投票（默认关，关着就是零依赖）
 enabled = false         # 需在环境变量设置 KIMI_GUARD_VETO_API_KEY（任何 OpenAI 兼容端点）
@@ -167,6 +177,8 @@ maxBlocksPerSession = 5
 plan = "tier1"          # tier1: 1024/周 | tier2: 2048 | tier3: 7168（每 5h 200）
 reservePercent = 10     # 给你保留的余量，Agent 永远不能吃掉
 subagentWeight = 5      # 每个派发子代理的请求折算
+precise = false         # 轮询官方 Kimi 用量 API 拿精确窗口（需 KIMI_API_KEY，sk-kimi-...）
+                        # 任何错误都回退到事件估算——fail-open
 ```
 
 ## 工作原理
@@ -177,7 +189,7 @@ flowchart LR
         A["工具调用"] -->|"hook 事件 / Wire 消息"| B
     end
     subgraph GUARD["kimi-guard"]
-        B["归一化层<br/>schema 变体容忍<br/>+ 输出哈希"] --> C["分析器（纯函数）<br/>重复 · 周期 · 无增益 · 抖动<br/>无进展 · 近似重复"]
+        B["归一化层<br/>schema 变体容忍<br/>+ 输出哈希"] --> C["分析器（纯函数）<br/>重复 · 周期 · 无增益 · 抖动<br/>无进展 · 近似重复 · 探索漂移"]
         M["预算引擎<br/>5h/周窗口<br/>燃烧率外推"] --> C
         C --> D["策略引擎<br/>发现 → 动作<br/>+ 保险丝"]
     end
@@ -234,7 +246,7 @@ Kimi Code CLI ──hook 事件──▶ kguard hook <event>（stdin 收 JSON）
 ## 路线图
 
 - [ ] **v0.7** — 按角色的模型路由（依赖上游子代理派发的 `model` 字段，[#2533](https://github.com/MoonshotAI/kimi-cli/issues/2533)）；并行 Agent 的 git worktree 半成品隔离
-- [ ] 官方开放套餐用量 API 后切换为精确计量（当前基于事件的近似计量偏保守）
+- [x] 官方用量 API 精确计量（v0.6.2,`[budget] precise = true`；事件估算保留为 fail-open 兜底）
 - [ ] 跨 harness 适配器——见 [docs/PORTING.md](../docs/PORTING.md) 的可复用核心清单
 
 ## 生态分工

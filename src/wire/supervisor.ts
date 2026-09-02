@@ -8,6 +8,7 @@ import { recordCall, recordEvent, recordBlock, callsSince, countBlocks, openDb }
 import { analyzeCall } from "../analysis.js";
 import { loadConfig, type GuardConfig } from "../config.js";
 import { evaluateBudgetGate } from "../meter.js";
+import { refreshPreciseIfStale } from "../precise.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
 import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
@@ -376,6 +377,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
     const analysis = analyzeCall(history, { tool: toolName, argsHash: fingerprint(toolName, args), args }, cfg);
 
     if (cfg.budget.dispatchTools.includes(toolName)) {
+      await refreshPreciseIfStale(cfg.budget, { ...process.env, ...opts.env });
       const budgetFinding = evaluateBudgetGate(sessionId(), cfg.budget, Date.now());
       if (budgetFinding) analysis.findings.unshift(budgetFinding);
     }

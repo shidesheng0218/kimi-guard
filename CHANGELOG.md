@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2 — 2026-09-01
+
+- 🧭 **Canonical tool taxonomy**: new `[tools]` config section (`edit` / `read` / `search` / `shell`) — the single place to update if a CLI version renames tools. Replaces six hardcoded lists scattered across analysis, verify, veto and checkpoint (which had already drifted apart). Legacy `[churn] tools` and `[verify] shellTools` keys remain supported.
+- 🔭 **Exploration-drift detector**: a trailing streak of read/search calls with no action in between (exploring without implementing) warns at 10, blocks at 15. A proposed action call is never blocked by this detector.
+- 🎯 **Precise plan metering** (opt-in): `[budget] precise = true` + `KIMI_API_KEY` polls the official Kimi Coding Plan usage API (`/usages`, `/usage` fallback) and overrides the event-based window estimates with exact used/limit/reset values. TTL-cached (300s), 3s timeout, defensive parsing across known payload shapes; every failure path falls back to event-based estimates. Refreshed on dispatch-gate decisions (hooks + Wire) and `kguard budget`.
+
 ## 0.6.1 — 2026-09-01
 
 - 🚦 **Wire budget gate fixed**: the Wire supervisor never recorded `turn`/`subagent` events, so the quota gate read zero usage and could not fire in `kguard run`. `TurnBegin` now counts as one request (same as `TurnStarted` in hooks mode); the first event from a subagent counts as its dispatch.

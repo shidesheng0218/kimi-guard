@@ -3,6 +3,7 @@ import path from "node:path";
 import { callsSince, knownSessions, recordEvent } from "./store.js";
 import { guardHome } from "./paths.js";
 import { loadConfig, type GuardConfig } from "./config.js";
+import { editTools, readTools, searchTools, shellTools } from "./toolsets.js";
 
 export interface Checkpoint {
   sessionId: string;
@@ -11,8 +12,6 @@ export interface Checkpoint {
   reason: string;
   ts: number;
 }
-
-const EDIT_TOOLS = new Set(["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 function argSummary(argsJson: string, max = 100): string {
   try {
@@ -38,7 +37,10 @@ export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3
   const calls = callsSince(sessionId, now - windowMs, 1000);
   if (calls.length === 0) return "";
 
-  const shellTools = new Set(cfg.verify.shellTools.length > 0 ? cfg.verify.shellTools : ["Shell", "Bash"]);
+  const shells = shellTools(cfg);
+  const edits = editTools(cfg);
+  const reads = readTools(cfg);
+  const searchesSet = searchTools(cfg);
   const files = new Map<string, { reads: number; edits: number }>();
   const commands: string[] = [];
   const searches: string[] = [];
@@ -46,17 +48,17 @@ export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3
 
   for (const r of calls) {
     const summary = argSummary(r.args_json, 90);
-    if (EDIT_TOOLS.has(r.tool_name) && r.file_path) {
+    if (edits.has(r.tool_name) && r.file_path) {
       const f = files.get(r.file_path) ?? { reads: 0, edits: 0 };
       f.edits++;
       files.set(r.file_path, f);
-    } else if (r.file_path && (r.tool_name === "ReadFile" || r.tool_name === "Read")) {
+    } else if (r.file_path && reads.has(r.tool_name)) {
       const f = files.get(r.file_path) ?? { reads: 0, edits: 0 };
       f.reads++;
       files.set(r.file_path, f);
     }
-    if (shellTools.has(r.tool_name)) commands.push(summary);
-    if (r.tool_name === "Grep" || r.tool_name === "Glob") searches.push(summary);
+    if (shells.has(r.tool_name)) commands.push(summary);
+    if (searchesSet.has(r.tool_name)) searches.push(summary);
     if (r.status === "failure") failures.push(`${r.tool_name}: ${summary}`);
   }
 

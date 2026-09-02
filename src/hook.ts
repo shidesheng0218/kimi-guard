@@ -1,12 +1,25 @@
 import { readStdinJson, processHookEvent } from "./guard.js";
 import { loadConfig } from "./config.js";
+import { refreshPreciseIfStale } from "./precise.js";
 
 /** Entry point used by the `kguard hook <event>` CLI command. */
 export async function runHook(event: string): Promise<number> {
   const payload = await readStdinJson();
   let outcome;
   try {
-    outcome = processHookEvent(event, loadConfig(), payload);
+    const cfg = loadConfig();
+    // Precise quota metering: refresh the official-API cache right before a
+    // dispatch decision. Bounded to 3s, TTL-cached; any failure falls back to
+    // event-based estimates.
+    if (event === "PreToolUse" && cfg.budget.precise) {
+      const tool =
+        (typeof payload["tool_name"] === "string" && payload["tool_name"]) ||
+        (typeof payload["toolName"] === "string" && payload["toolName"]) ||
+        (typeof payload["tool"] === "string" && payload["tool"]) ||
+        "";
+      if (cfg.budget.dispatchTools.includes(tool)) await refreshPreciseIfStale(cfg.budget);
+    }
+    outcome = processHookEvent(event, cfg, payload);
   } catch (err) {
     process.stderr.write(`[kimi-guard] guard error (fail-open): ${(err as Error).message}\n`);
     return 0;

@@ -1,5 +1,6 @@
 import { callsSince, getMeta, setMeta } from "./store.js";
 import type { GuardConfig } from "./config.js";
+import { shellTools } from "./toolsets.js";
 import type { ClaimMatch } from "./verify.js";
 
 export interface VetoConfig {
@@ -35,11 +36,11 @@ export function vetoBaseUrls(cfg: VetoConfig, env: NodeJS.ProcessEnv = process.e
 export function collectVetoContext(sessionId: string, cfg: GuardConfig, now = Date.now()): VetoContext {
   const since = now - cfg.verify.evidenceWindowMinutes * 60_000;
   const calls = callsSince(sessionId, since, 400);
-  const shellTools = new Set(cfg.verify.shellTools.length > 0 ? cfg.verify.shellTools : ["Shell", "Bash"]);
+  const shells = shellTools(cfg);
   const recentCommands: string[] = [];
   const editedFiles: string[] = [];
   for (const r of calls.slice(-40)) {
-    if (shellTools.has(r.tool_name)) {
+    if (shells.has(r.tool_name)) {
       try {
         const args = JSON.parse(r.args_json) as { command?: string };
         if (args.command) recentCommands.push(args.command.slice(0, 120));

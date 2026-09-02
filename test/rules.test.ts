@@ -2,11 +2,13 @@ import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { defaultConfig } from "../src/config.js";
+import { defaultConfig, loadConfig } from "../src/config.js";
 import { fingerprint, hashOutput, normalizeCall, extractFile } from "../src/events.js";
 import { analyzeCall } from "../src/analysis.js";
 import { resolveFindings, isKillSwitchTripped } from "../src/policy.js";
 import { recordCall, resetDbForTests, type CallRow } from "../src/store.js";
+import { editTools, shellTools, readTools, searchTools } from "../src/toolsets.js";
+import { userConfigPath } from "../src/paths.js";
 
 let tmp: string;
 
@@ -216,6 +218,70 @@ describe("churn analyzer", () => {
     const history10 = Array.from({ length: 10 }, (_, i) => mk("WriteFile", { ...args, content: `v${i}` }));
     const r2 = analyzeCall(history10, { tool: "WriteFile", argsHash: "new", args }, c);
     expect(r2.findings.find((f) => f.kind === "churn")?.severity).toBe("block");
+  });
+});
+
+describe("explore detector (pure-exploration streak)", () => {
+  it("warns on a long read/search streak, blocks at the block threshold", () => {
+    const c = cfg(); // explore.warnAt 10, blockAt 15
+    const reads = (n: number) =>
+      Array.from({ length: n }, (_, i) => mk("ReadFile", { path: `f${i}.ts` }));
+    const warn = analyzeCall(reads(10), { tool: "ReadFile", argsHash: "x", args: {} }, c);
+    expect(warn.findings.find((f) => f.kind === "explore")?.severity).toBe("warn");
+    const block = analyzeCall(reads(15), { tool: "Grep", argsHash: "x", args: {} }, c);
+    expect(block.findings.find((f) => f.kind === "explore")?.severity).toBe("block");
+  });
+
+  it("an action breaks the streak; a proposed edit stays silent", () => {
+    const c = cfg();
+    const history = [
+      ...Array.from({ length: 14 }, (_, i) => mk("ReadFile", { path: `f${i}.ts` })),
+      mk("Shell", { command: "npm test" }),
+      ...Array.from({ length: 3 }, (_, i) => mk("Grep", { pattern: `p${i}` })),
+    ];
+    const r = analyzeCall(history, { tool: "ReadFile", argsHash: "x", args: {} }, c);
+    expect(r.findings.find((f) => f.kind === "explore")).toBeUndefined();
+    // proposed edit on top of a long read streak: no finding (the edit breaks it)
+    const history2 = Array.from({ length: 16 }, (_, i) => mk("ReadFile", { path: `g${i}.ts` }));
+    const r2 = analyzeCall(history2, { tool: "WriteFile", argsHash: "x", args: {} }, c);
+    expect(r2.findings.find((f) => f.kind === "explore")).toBeUndefined();
+  });
+
+  it("disabled → silent", () => {
+    const c = cfg();
+    c.explore.enabled = false;
+    const history = Array.from({ length: 20 }, (_, i) => mk("ReadFile", { path: `h${i}.ts` }));
+    const r = analyzeCall(history, { tool: "ReadFile", argsHash: "x", args: {} }, c);
+    expect(r.findings.find((f) => f.kind === "explore")).toBeUndefined();
+  });
+});
+
+describe("tool taxonomy ([tools] section)", () => {
+  it("defaults resolve to the canonical lists", () => {
+    const c = cfg();
+    expect(editTools(c).has("WriteFile")).toBe(true);
+    expect(readTools(c).has("ReadFile")).toBe(true);
+    expect(searchTools(c).has("Grep")).toBe(true);
+    expect(shellTools(c).has("Bash")).toBe(true);
+  });
+
+  it("[tools] section wins outright", () => {
+    fs.writeFileSync(userConfigPath(), `[tools]\nedit = ["MyEdit"]\nshell = ["execute_command"]\n`);
+    const c = loadConfig();
+    expect(editTools(c).has("MyEdit")).toBe(true);
+    expect(editTools(c).has("WriteFile")).toBe(false);
+    expect(shellTools(c).has("execute_command")).toBe(true);
+  });
+
+  it("legacy [churn] tools and [verify] shellTools still work, but lose to [tools]", () => {
+    fs.writeFileSync(userConfigPath(), `[churn]\ntools = ["LegacyEdit"]\n[verify]\nshellTools = ["LegacyShell"]\n`);
+    let c = loadConfig();
+    expect(editTools(c).has("LegacyEdit")).toBe(true);
+    expect(shellTools(c).has("LegacyShell")).toBe(true);
+    fs.writeFileSync(userConfigPath(), `[churn]\ntools = ["LegacyEdit"]\n[tools]\nedit = ["MyEdit"]\n`);
+    c = loadConfig();
+    expect(editTools(c).has("MyEdit")).toBe(true);
+    expect(editTools(c).has("LegacyEdit")).toBe(false);
   });
 });
 

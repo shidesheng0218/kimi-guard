@@ -1,8 +1,9 @@
 import type { CallRow } from "./store.js";
 import { fingerprint } from "./events.js";
 import type { GuardConfig } from "./config.js";
+import { editTools, readTools, searchTools } from "./toolsets.js";
 
-export type FindingKind = "repeat" | "cycle" | "noGain" | "churn" | "noProgress" | "nearRepeat" | "budget";
+export type FindingKind = "repeat" | "cycle" | "noGain" | "churn" | "noProgress" | "nearRepeat" | "explore" | "budget";
 export type Severity = "warn" | "block";
 
 export interface Finding {
@@ -189,10 +190,9 @@ export function analyzeNoGain(history: CallRow[], cfg: GuardConfig, now: number)
   return findings.slice(0, 2);
 }
 
-const DEFAULT_CHURN_TOOLS = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"];
-
+/** @deprecated kept for API compatibility — use editTools() from toolsets.ts */
 export function editToolSet(cfg: GuardConfig): Set<string> {
-  return new Set(cfg.churn.tools.length > 0 ? cfg.churn.tools : DEFAULT_CHURN_TOOLS);
+  return editTools(cfg);
 }
 
 /**
@@ -251,7 +251,7 @@ export function analyzeNoProgress(
 export function analyzeChurn(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
   if (!cfg.churn.enabled) return allow;
   const since = now - cfg.churn.windowMinutes * 60_000;
-  const tools = new Set(cfg.churn.tools.length > 0 ? cfg.churn.tools : DEFAULT_CHURN_TOOLS);
+  const tools = editTools(cfg);
   const byFile = new Map<string, number>();
   for (const r of history) {
     if (r.ts < since || !r.file_path || !tools.has(r.tool_name)) continue;
@@ -286,6 +286,56 @@ export function analyzeChurn(history: CallRow[], cfg: GuardConfig, now: number):
 
 export interface AnalysisResult {
   findings: Finding[];
+}
+
+/**
+ * Pure-exploration streak: a trailing run of read/search calls with no action
+ * (edit, shell, dispatch) in between — the agent is reading without
+ * implementing. If the proposed call itself is an action, stay silent and let
+ * it break the streak. Complements noProgress (any non-edit motion) by
+ * firing specifically on passive observation.
+ */
+export function analyzeExplore(
+  history: CallRow[],
+  proposed: { tool: string },
+  cfg: GuardConfig,
+  now: number,
+): Finding[] {
+  if (!cfg.explore.enabled) return allow;
+  const passive = new Set([...readTools(cfg), ...searchTools(cfg)]);
+  if (!passive.has(proposed.tool)) return allow;
+  const since = now - cfg.explore.windowMinutes * 60_000;
+  let streak = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const r = history[i]!;
+    if (r.ts < since || !passive.has(r.tool_name)) break;
+    streak++;
+  }
+  if (streak < cfg.explore.warnAt) return allow;
+  if (streak >= cfg.explore.blockAt) {
+    return [
+      {
+        kind: "explore",
+        severity: "block",
+        tool: proposed.tool,
+        message:
+          `Exploration without implementation: ${streak} consecutive read/search calls with no action ` +
+          `in the last ${cfg.explore.windowMinutes} minutes. You have gathered enough — pick the most ` +
+          `valuable thing you learned and act on it (edit, run, or write). If nothing is actionable, ` +
+          `summarize what you found and say so.`,
+        evidence: `streak=${streak} blockAt=${cfg.explore.blockAt}`,
+      },
+    ];
+  }
+  return [
+    {
+      kind: "explore",
+      severity: "warn",
+      tool: proposed.tool,
+      message: `${streak} consecutive read/search calls — make sure the next step acts on what you already learned.`,
+      evidence: `streak=${streak}`,
+    },
+  ];
 }
 
 /**
@@ -359,6 +409,7 @@ export function analyzeCall(
     ...analyzeChurn(history, cfg, now),
     ...analyzeNoProgress(history, proposed, cfg, now),
     ...analyzeNearRepeat(history, cfg, now),
+    ...analyzeExplore(history, proposed, cfg, now),
   ];
   const rank = { block: 0, warn: 1 } as const;
   findings.sort((a, b) => rank[a.severity] - rank[b.severity]);

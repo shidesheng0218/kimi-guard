@@ -8,6 +8,7 @@ import { buildStatus, openDb, knownSessions, getMeta } from "./store.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
+import { preciseKeyConfigured } from "./precise.js";
 
 function ok(msg: string): void {
   console.log(`${pc.green("✓")} ${msg}`);
@@ -185,6 +186,11 @@ export function cmdDoctor(): number {
     else warn("verify veto enabled but KIMI_GUARD_VETO_API_KEY is not set — the veto is inert at runtime (deterministic gate still works)");
   } else {
     ok("verify veto: off (pure deterministic gate)");
+  }
+
+  if (cfg.budget.precise) {
+    if (preciseKeyConfigured()) ok("budget precise metering: enabled, KIMI_API_KEY present");
+    else warn("budget precise metering enabled but KIMI_API_KEY is not set — falling back to event-based estimates");
   }
 
   if (failures === 0) console.log("\nAll checks passed.");

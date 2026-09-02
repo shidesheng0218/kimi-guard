@@ -1,4 +1,5 @@
 import { countEvents, countBlocks, oldestEventTs, type StatusReport } from "./store.js";
+import { cachedPreciseUsage } from "./precise.js";
 import type { Finding } from "./analysis.js";
 
 export interface PlanPreset {
@@ -18,9 +19,13 @@ export interface BudgetConfig {
   plan: string;
   weekly: number;
   fiveHour: number;
+  dispatchTools: string[];
   reservePercent: number;
   subagentWeight: number;
   warnPercent: number;
+  precise: boolean;
+  preciseUrl: string;
+  preciseCacheSeconds: number;
 }
 
 export interface WindowUsage {
@@ -41,6 +46,8 @@ export interface BudgetSnapshot {
   subagentsLastHour: number;
   /** projected requests by the end of the rolling 5h window at current burn rate */
   projectedFiveHour: number;
+  /** true when windows come from the official usage API instead of event estimates */
+  precise: boolean;
 }
 
 const HOUR = 3_600_000;
@@ -64,8 +71,10 @@ export function resolveLimits(cfg: BudgetConfig): PlanPreset {
  *  - a TurnStarted event ≈ 1 LLM request against the plan
  *  - a dispatched subagent ≈ subagentWeight requests (its own turns are not
  *    observed by main-session hooks)
- * Both are approximations until exact usage APIs are available; they err on
- * the conservative side (overcounting), which is the safe direction for a guard.
+ * Both are approximations; they err on the conservative side (overcounting),
+ * which is the safe direction for a guard. With `[budget] precise = true` and
+ * KIMI_API_KEY set, the official usage API overrides the window estimates
+ * (cached; any failure falls back to the estimates).
  */
 export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.now()): BudgetSnapshot {
   const turns = countEvents(sessionId, ["turn"], now - HOUR);
@@ -88,8 +97,24 @@ export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.
   const five = mk("5h", used5h, limits.fiveHour, FIVE_HOURS, oldestEventTs(sessionId, ["turn", "subagent"], now - FIVE_HOURS));
   const week = mk("weekly", usedWeek, limits.weekly, WEEK, oldestEventTs(sessionId, ["turn", "subagent"], now - WEEK));
 
+  // Precise mode: a fresh official-API reading overrides the event estimates.
+  // The burn rate stays event-based (the API has no per-hour breakdown).
+  const precise = cachedPreciseUsage(cfg);
+  if (precise?.fiveHour && precise.fiveHour.limit > 0) {
+    five.used = precise.fiveHour.used;
+    five.limit = precise.fiveHour.limit;
+    five.percent = Math.min(100, Math.round((five.used / five.limit) * 100));
+    if (precise.fiveHour.resetsAt !== null) five.resetsInMs = Math.max(0, precise.fiveHour.resetsAt - now);
+  }
+  if (precise?.weekly && precise.weekly.limit > 0) {
+    week.used = precise.weekly.used;
+    week.limit = precise.weekly.limit;
+    week.percent = Math.min(100, Math.round((week.used / week.limit) * 100));
+    if (precise.weekly.resetsAt !== null) week.resetsInMs = Math.max(0, precise.weekly.resetsAt - now);
+  }
+
   const hoursLeft5h = Math.max(0.25, (five.resetsInMs) / HOUR);
-  const projected = used5h + turns * hoursLeft5h + subagents * cfg.subagentWeight * hoursLeft5h;
+  const projected = five.used + turns * hoursLeft5h + subagents * cfg.subagentWeight * hoursLeft5h;
 
   return {
     enabled: cfg.enabled,
@@ -99,6 +124,7 @@ export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.
     turnsLastHour: turns,
     subagentsLastHour: subagents,
     projectedFiveHour: Math.round(projected),
+    precise: precise !== null,
   };
 }
 
@@ -166,7 +192,7 @@ export function formatSnapshot(snap: BudgetSnapshot): string {
     return `[${"█".repeat(filled)}${"░".repeat(20 - filled)}] ${w.percent}% (${w.used}/${w.limit})`;
   };
   return [
-    `plan: ${snap.plan}`,
+    `plan: ${snap.plan}${snap.precise ? " (precise, official API)" : ""}`,
     `5h:     ${bar(snap.fiveHour)}  resets in ${Math.round(snap.fiveHour.resetsInMs / HOUR)}h`,
     `weekly: ${bar(snap.weekly)}  resets in ${Math.round(snap.weekly.resetsInMs / (24 * HOUR))}d`,
     `burn rate: ${snap.turnsLastHour} req + ${snap.subagentsLastHour} subagents in the last hour`,
