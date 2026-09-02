@@ -3,7 +3,7 @@ import { fingerprint } from "./events.js";
 import type { GuardConfig } from "./config.js";
 import { editTools, readTools, searchTools } from "./toolsets.js";
 
-export type FindingKind = "repeat" | "cycle" | "noGain" | "churn" | "noProgress" | "nearRepeat" | "explore" | "budget";
+export type FindingKind = "repeat" | "cycle" | "noGain" | "noGainFuzzy" | "churn" | "noProgress" | "nearRepeat" | "explore" | "budget";
 export type Severity = "warn" | "block";
 
 export interface Finding {
@@ -288,6 +288,74 @@ export interface AnalysisResult {
   findings: Finding[];
 }
 
+/** Trigram set of a string (short strings < 3 chars map to the whole string). */
+function trigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  if (s.length < 3) {
+    if (s.length > 0) out.add(s);
+    return out;
+  }
+  for (let i = 0; i + 3 <= s.length; i++) out.add(s.slice(i, i + 3));
+  return out;
+}
+
+/** Jaccard similarity over trigram sets — O(n), good enough for "outputs barely changed". */
+export function trigramJaccard(a: string, b: string): number {
+  const A = trigrams(a);
+  const B = trigrams(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / (A.size + B.size - inter);
+}
+
+/**
+ * Fuzzy no-gain: outputs that are near-identical but not byte-identical —
+ * "the result page moved one line" spinning that exact-hash noGain misses.
+ * Counts the trailing streak of successive same-tool calls whose outputs are
+ * ≥ fuzzySimilarity similar AND not byte-identical (identical is noGain's job).
+ */
+export function analyzeNoGainFuzzy(history: CallRow[], proposed: { tool: string }, cfg: GuardConfig, now: number): Finding[] {
+  if (!cfg.noGain.enabled || !cfg.noGain.fuzzyEnabled) return allow;
+  const since = now - cfg.noGain.windowMinutes * 60_000;
+  const outs = history.filter((r) => r.ts >= since && r.tool_name === proposed.tool && r.output_sample);
+  if (outs.length < 2) return allow;
+
+  let streak = 0;
+  for (let i = outs.length - 1; i > 0; i--) {
+    const cur = outs[i]!;
+    const prev = outs[i - 1]!;
+    if (cur.output_hash === prev.output_hash) continue; // identical outputs are noGain's territory
+    if (trigramJaccard(cur.output_sample!, prev.output_sample!) >= cfg.noGain.fuzzySimilarity) streak++;
+    else break;
+  }
+  if (streak < cfg.noGain.fuzzyWarnAt) return allow;
+
+  if (streak >= cfg.noGain.fuzzyBlockAt) {
+    return [
+      {
+        kind: "noGainFuzzy",
+        severity: "block",
+        tool: proposed.tool,
+        message:
+          `Stagnation: the last ${streak + 1} ${proposed.tool} calls returned outputs that differ only ` +
+          `trivially (similarity ≥ ${cfg.noGain.fuzzySimilarity}). You are re-querying without learning ` +
+          `anything new. Work with what you have, or change the query substantially.`,
+        evidence: `similar_streak=${streak} blockAt=${cfg.noGain.fuzzyBlockAt}`,
+      },
+    ];
+  }
+  return [
+    {
+      kind: "noGainFuzzy",
+      severity: "warn",
+      tool: proposed.tool,
+      message: `the last ${streak + 1} ${proposed.tool} outputs are near-identical — verify these calls still return new information.`,
+      evidence: `similar_streak=${streak}`,
+    },
+  ];
+}
+
 /**
  * Pure-exploration streak: a trailing run of read/search calls with no action
  * (edit, shell, dispatch) in between — the agent is reading without
@@ -406,6 +474,7 @@ export function analyzeCall(
     ...analyzeRepetition(history, proposed, cfg, now),
     ...analyzeCycles(history, cfg, now),
     ...analyzeNoGain(history, cfg, now),
+    ...analyzeNoGainFuzzy(history, proposed, cfg, now),
     ...analyzeChurn(history, cfg, now),
     ...analyzeNoProgress(history, proposed, cfg, now),
     ...analyzeNearRepeat(history, cfg, now),

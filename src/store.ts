@@ -10,7 +10,7 @@ function sqliteCtor(): typeof DatabaseSync {
   return (nodeRequire("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 }
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS calls (
@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS calls (
   args_hash TEXT NOT NULL,
   args_json TEXT NOT NULL,
   output_hash TEXT,
+  output_sample TEXT,
   file_path TEXT,
   status TEXT NOT NULL,
   ts INTEGER NOT NULL
@@ -73,13 +74,22 @@ function migrate(d: DatabaseSync): void {
     d.exec(SCHEMA);
     return;
   }
-  if (version === 2) {
-    // v2 → v3: additive (feedback column on blocks). History is an asset — keep it.
+  if (version >= 2) {
+    // v2+ → latest: additive only. History is an asset — keep it.
     d.exec(SCHEMA);
-    try {
-      d.exec("ALTER TABLE blocks ADD COLUMN feedback TEXT");
-    } catch {
-      /* column already exists */
+    if (version < 3) {
+      try {
+        d.exec("ALTER TABLE blocks ADD COLUMN feedback TEXT");
+      } catch {
+        /* column already exists */
+      }
+    }
+    if (version < 4) {
+      try {
+        d.exec("ALTER TABLE calls ADD COLUMN output_sample TEXT");
+      } catch {
+        /* column already exists */
+      }
     }
   } else {
     // v0/v1: dev-stage schemas, safe to rebuild
@@ -103,6 +113,8 @@ export interface CallRow {
   args_hash: string;
   args_json: string;
   output_hash: string | null;
+  /** first 1KB of the normalized output — feeds fuzzy (similarity) no-gain detection */
+  output_sample: string | null;
   file_path: string | null;
   status: string;
   ts: number;
@@ -114,13 +126,14 @@ export function recordCall(call: {
   argsHash: string;
   argsJson: string;
   outputHash: string | null;
+  outputSample?: string | null;
   filePath: string | null;
   status: "ok" | "failure";
   ts?: number;
 }): void {
   openDb()
     .prepare(
-      "INSERT INTO calls (session_id, tool_name, args_hash, args_json, output_hash, file_path, status, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO calls (session_id, tool_name, args_hash, args_json, output_hash, output_sample, file_path, status, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       call.sessionId,
@@ -128,6 +141,7 @@ export function recordCall(call: {
       call.argsHash,
       call.argsJson,
       call.outputHash,
+      call.outputSample ?? null,
       call.filePath,
       call.status,
       call.ts ?? Date.now(),
@@ -137,7 +151,7 @@ export function recordCall(call: {
 export function callsSince(sessionId: string, sinceTs: number, limit = 500): CallRow[] {
   return openDb()
     .prepare(
-      "SELECT tool_name, args_hash, args_json, output_hash, file_path, status, ts FROM calls WHERE session_id = ? AND ts >= ? ORDER BY ts ASC LIMIT ?",
+      "SELECT tool_name, args_hash, args_json, output_hash, output_sample, file_path, status, ts FROM calls WHERE session_id = ? AND ts >= ? ORDER BY ts ASC LIMIT ?",
     )
     .all(sessionId, sinceTs, limit) as unknown as CallRow[];
 }

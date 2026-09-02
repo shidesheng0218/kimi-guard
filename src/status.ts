@@ -28,6 +28,7 @@ const CALIBRATION_KEYS: Record<string, string> = {
   repeat: "repeat.maxRepeats",
   nearRepeat: "nearRepeat.blockAt",
   noGain: "noGain.blockAt",
+  noGainFuzzy: "noGain.fuzzyBlockAt",
   churn: "churn.blockAt",
   noProgress: "noProgress.blockAt",
   explore: "explore.blockAt",

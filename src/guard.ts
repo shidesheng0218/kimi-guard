@@ -233,6 +233,7 @@ function handlePostTool(event: string, cfg: GuardConfig, payload: HookPayload, s
     argsHash: call.argsHash,
     argsJson: call.argsJson,
     outputHash: call.outputHash,
+    outputSample: call.outputSample,
     filePath: call.filePath,
     status: call.status,
     ts: now,

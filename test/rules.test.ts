@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { defaultConfig, loadConfig } from "../src/config.js";
-import { fingerprint, hashOutput, normalizeCall, extractFile } from "../src/events.js";
-import { analyzeCall } from "../src/analysis.js";
+import { fingerprint, hashOutput, normalizeCall, extractFile, outputSampleOf } from "../src/events.js";
+import { analyzeCall, trigramJaccard } from "../src/analysis.js";
 import { resolveFindings, isKillSwitchTripped } from "../src/policy.js";
 import { recordCall, resetDbForTests, type CallRow } from "../src/store.js";
 import { editTools, shellTools, readTools, searchTools } from "../src/toolsets.js";
@@ -36,6 +36,7 @@ const mk = (
   args_hash: fingerprint(tool, args),
   args_json: JSON.stringify(args),
   output_hash: opts?.output !== undefined ? hashOutput(opts.output) : null,
+  output_sample: opts?.output !== undefined ? outputSampleOf(opts.output) : null,
   file_path: opts?.file !== undefined ? opts.file : extractFile(args),
   status: opts?.status ?? "ok",
   ts: Date.now() - (opts?.ago ?? 0),
@@ -204,6 +205,63 @@ describe("no-gain analyzer", () => {
     ];
     const r = analyzeCall(history, { tool: "Grep", argsHash: "q", args: {} }, c);
     expect(r.findings.find((f) => f.kind === "noGain")).toBeUndefined();
+  });
+});
+
+describe("fuzzy no-gain (output similarity)", () => {
+  const base = "Search results for query: 42 items found in src/. alpha.ts:10 matches here. beta.ts:25 matches here. gamma.ts:40 end of results.";
+  const near = (i: number) => base.replace("42 items", `${42 + i} items`); // one-token drift per call
+
+  it("warns then blocks on near-identical (not byte-identical) outputs", () => {
+    const c = cfg(); // fuzzySimilarity 0.85, fuzzyWarnAt 4, fuzzyBlockAt 6
+    const history = [0, 1, 2, 3, 4].map((i) => mk("Grep", { pattern: `q${i}` }, { output: near(i) }));
+    const r = analyzeCall(history, { tool: "Grep", argsHash: "new", args: { pattern: "q5" } }, c);
+    expect(r.findings.find((f) => f.kind === "noGainFuzzy")?.severity).toBe("warn");
+
+    const more = [...history, mk("Grep", { pattern: "q5" }, { output: near(5) }), mk("Grep", { pattern: "q6" }, { output: near(6) })];
+    const r2 = analyzeCall(more, { tool: "Grep", argsHash: "new2", args: { pattern: "q7" } }, c);
+    expect(r2.findings.find((f) => f.kind === "noGainFuzzy")?.severity).toBe("block");
+  });
+
+  it("ignores genuinely different outputs", () => {
+    const c = cfg();
+    const history = [
+      mk("Grep", { pattern: "a" }, { output: "totally different content alpha beta gamma delta" }),
+      mk("Grep", { pattern: "b" }, { output: "something else entirely: epsilon zeta eta theta" }),
+      mk("Grep", { pattern: "c" }, { output: "no resemblance at all: iota kappa lambda mu nu" }),
+      mk("Grep", { pattern: "d" }, { output: "unrelated text about xi omicron pi rho sigma tau" }),
+      mk("Grep", { pattern: "e" }, { output: "different again: phi chi psi omega lorem ipsum" }),
+    ];
+    const r = analyzeCall(history, { tool: "Grep", argsHash: "x", args: {} }, c);
+    expect(r.findings.find((f) => f.kind === "noGainFuzzy")).toBeUndefined();
+  });
+
+  it("byte-identical pairs belong to noGain, not the fuzzy streak", () => {
+    const c = cfg();
+    const same = "identical output payload for every call, nothing varies at all here";
+    const history = [0, 1, 2, 3, 4].map((i) => mk("Grep", { pattern: `q${i}` }, { output: same }));
+    const r = analyzeCall(history, { tool: "Grep", argsHash: "x", args: {} }, c);
+    expect(r.findings.find((f) => f.kind === "noGainFuzzy")).toBeUndefined();
+    expect(r.findings.find((f) => f.kind === "noGain")).toBeDefined();
+  });
+});
+
+describe("trigramJaccard", () => {
+  it("scores identity, similarity and dissimilarity sensibly", () => {
+    const a = "the quick brown fox jumps over the lazy dog";
+    expect(trigramJaccard(a, a)).toBe(1);
+    expect(trigramJaccard(a, "the quick brown fox jumps over the lazy cat")).toBeGreaterThan(0.85);
+    expect(trigramJaccard(a, "completely unrelated text about databases")).toBeLessThan(0.2);
+    expect(trigramJaccard("", "x")).toBe(0);
+    expect(trigramJaccard("ab", "ab")).toBe(1); // short-string fallback
+  });
+
+  it("is fast enough for hook latency budgets", () => {
+    const a = "lorem ipsum dolor sit amet ".repeat(35); // ~1KB
+    const b = a.replace("lorem", "LOREM");
+    const t0 = performance.now();
+    for (let i = 0; i < 1000; i++) trigramJaccard(a, b);
+    expect(performance.now() - t0).toBeLessThan(200);
   });
 });
 

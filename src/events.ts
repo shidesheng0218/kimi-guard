@@ -11,6 +11,7 @@ export interface NormalizedCall {
   argsHash: string;
   argsJson: string;
   outputHash: string | null;
+  outputSample: string | null;
   filePath: string | null;
   status: "ok" | "failure";
   ts: number;
@@ -87,6 +88,25 @@ export function hashOutput(output: unknown): string | null {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
 }
 
+/**
+ * Short normalized sample of the output (whitespace-collapsed, ≤1KB) —
+ * the input for fuzzy no-gain similarity comparisons.
+ */
+export function outputSampleOf(output: unknown): string | null {
+  if (output === undefined || output === null) return null;
+  let s: string;
+  if (typeof output === "string") s = output;
+  else {
+    try {
+      s = JSON.stringify(output);
+    } catch {
+      s = String(output);
+    }
+  }
+  s = collapseWs(s).slice(0, 1024);
+  return s || null;
+}
+
 const FILE_KEYS = ["file_path", "filePath", "path", "file", "filename", "notebook_path", "target"];
 
 export function extractFile(args: unknown): string | null {
@@ -119,6 +139,7 @@ export function normalizeCall(payload: HookPayload, event: string, ts = Date.now
     argsHash: fingerprint(tool, args),
     argsJson,
     outputHash: output !== undefined ? hashOutput(output) : null,
+    outputSample: output !== undefined ? outputSampleOf(output) : null,
     filePath: extractFile(args),
     status: event === "PostToolUseFailure" ? "failure" : "ok",
     ts,

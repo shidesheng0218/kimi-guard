@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { WireClient } from "./client.js";
 import type { TokenUsage, ToolCallPayload, ToolResultPayload, StatusUpdatePayload, StepBeginPayload, StepRetryPayload, HookRequestPayload, HookResponse, ApprovalRequestPayload, SubagentEventPayload } from "./protocol.js";
-import { hashOutput, fingerprint } from "../events.js";
+import { hashOutput, fingerprint, outputSampleOf } from "../events.js";
 import type { HookPayload } from "../events.js";
 import { recordCall, recordEvent, recordBlock, callsSince, countBlocks, openDb } from "../store.js";
 import { analyzeCall } from "../analysis.js";
@@ -320,6 +320,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
       argsHash: fingerprint(call.name, call.args),
       argsJson: JSON.stringify(call.args).slice(0, 2048),
       outputHash: hashOutput(output),
+      outputSample: outputSampleOf(output),
       filePath: extractFile(call.args),
       status: returnValue.is_error ? "failure" : "ok",
     });

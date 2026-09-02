@@ -32,6 +32,11 @@ export interface GuardConfig {
     windowMinutes: number;
     warnAt: number;
     blockAt: number;
+    /** fuzzy variant: outputs that are merely SIMILAR (not byte-identical) */
+    fuzzyEnabled: boolean;
+    fuzzySimilarity: number;
+    fuzzyWarnAt: number;
+    fuzzyBlockAt: number;
   };
   noProgress: {
     enabled: boolean;
@@ -144,7 +149,7 @@ export const defaultConfig: GuardConfig = {
   thinking: { enabled: true, minThinkChars: 20000, maxTextRatio: 0.1 },
   anchor: { enabled: true, everyNPrompts: 5, maxChars: 1000 },
   context: { enabled: true, warnPercent: 85 },
-  noGain: { enabled: true, windowMinutes: 30, warnAt: 3, blockAt: 4 },
+  noGain: { enabled: true, windowMinutes: 30, warnAt: 3, blockAt: 4, fuzzyEnabled: true, fuzzySimilarity: 0.85, fuzzyWarnAt: 4, fuzzyBlockAt: 6 },
   churn: {
     enabled: true,
     windowMinutes: 30,
@@ -243,6 +248,10 @@ enabled = true
 windowMinutes = 30
 warnAt = 3
 blockAt = 4
+fuzzyEnabled = true       # also catch near-identical outputs (similarity, not identity)
+fuzzySimilarity = 0.85    # trigram Jaccard threshold (0..1); higher = stricter
+fuzzyWarnAt = 4
+fuzzyBlockAt = 6
 
 [churn]                   # same file edited over and over
 enabled = true
@@ -402,6 +411,10 @@ export function loadConfig(configPath = userConfigPath(), harness: HarnessName =
   cfg.noGain.windowMinutes = num(noGain["windowMinutes"], cfg.noGain.windowMinutes);
   cfg.noGain.warnAt = num(noGain["warnAt"], cfg.noGain.warnAt);
   cfg.noGain.blockAt = num(noGain["blockAt"], cfg.noGain.blockAt);
+  cfg.noGain.fuzzyEnabled = bool(noGain["fuzzyEnabled"], cfg.noGain.fuzzyEnabled);
+  cfg.noGain.fuzzySimilarity = Math.max(0.5, Math.min(1, num(noGain["fuzzySimilarity"], cfg.noGain.fuzzySimilarity)));
+  cfg.noGain.fuzzyWarnAt = num(noGain["fuzzyWarnAt"], cfg.noGain.fuzzyWarnAt);
+  cfg.noGain.fuzzyBlockAt = num(noGain["fuzzyBlockAt"], cfg.noGain.fuzzyBlockAt);
 
   const churn = section("churn");
   cfg.churn.enabled = bool(churn["enabled"], cfg.churn.enabled);
