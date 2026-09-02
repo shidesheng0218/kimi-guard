@@ -10,13 +10,13 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/shidesheng0218/kimi-guard/ci.yml?style=flat-square&label=CI)](/.github/workflows/ci.yml)
 
-<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg" alt="kimi-guard banner" width="100%"/>
+<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg?v=0.8.1" alt="agent-guard banner" width="100%"/>
 
 **[English](README.md) · [中文文档](docs/README.zh-CN.md)**
 
 <div align="center">
 
-![kimi-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif?v=0.6.1)
+![agent-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif?v=0.8.1)
 
 *Real terminal session: install → verify → a supervised run where the circuit breaker catches a looping tool call → live status & budget panels. Recorded with [vhs](https://github.com/charmbracelet/vhs) from actual commands ([demo.tape](assets/demo.tape)).*
 
