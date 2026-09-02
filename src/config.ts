@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import { parse as parseToml } from "smol-toml";
 import { userConfigPath } from "./paths.js";
-import { DEFAULT_EDIT_TOOLS, DEFAULT_READ_TOOLS, DEFAULT_SEARCH_TOOLS, DEFAULT_SHELL_TOOLS } from "./toolsets.js";
+import { toolDefaultsFor, type HarnessName } from "./toolsets.js";
 
 export interface GuardConfig {
+  /** which agent harness this config instance serves (affects tool-name defaults and event mapping) */
+  harness: HarnessName;
   /** canonical tool-name taxonomy — every tool-name classifier reads through here */
   tools: {
     edit: string[];
@@ -109,12 +111,8 @@ export interface GuardConfig {
 }
 
 export const defaultConfig: GuardConfig = {
-  tools: {
-    edit: [...DEFAULT_EDIT_TOOLS],
-    read: [...DEFAULT_READ_TOOLS],
-    search: [...DEFAULT_SEARCH_TOOLS],
-    shell: [...DEFAULT_SHELL_TOOLS],
-  },
+  harness: "kimi",
+  tools: toolDefaultsFor("kimi"),
   repeat: {
     enabled: true,
     maxRepeats: 3,
@@ -171,7 +169,7 @@ export const defaultConfig: GuardConfig = {
   probe: false,
 };
 
-const CONFIG_TEMPLATE = `# kimi-guard configuration
+const CONFIG_TEMPLATE = `# agent-guard configuration
 # Docs: https://github.com/shidesheng0218/kimi-guard
 
 [tools]                   # canonical tool-name taxonomy — if your CLI version renames tools, fix it HERE
@@ -275,6 +273,14 @@ preciseCacheSeconds = 300 # the API is rate-limited; cache aggressively. Falls b
 enabled = false
 `;
 
+/** Claude Code tool-name defaults (applied before the user config overlay). */
+function applyClaudeDefaults(cfg: GuardConfig): void {
+  cfg.tools = toolDefaultsFor("claude");
+  cfg.repeat.watch = ["Grep", "Glob", "Bash", "Read", "WebFetch", "WebSearch"];
+  cfg.repeat.thresholds = { Read: 5 };
+  cfg.budget.dispatchTools = ["Task"];
+}
+
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
@@ -292,8 +298,10 @@ function strArrOrNull(v: unknown): string[] | null {
   return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length > 0 ? (v as string[]) : null;
 }
 
-export function loadConfig(configPath = userConfigPath()): GuardConfig {
+export function loadConfig(configPath = userConfigPath(), harness: HarnessName = "kimi"): GuardConfig {
   const cfg: GuardConfig = structuredClone(defaultConfig);
+  cfg.harness = harness;
+  if (harness === "claude") applyClaudeDefaults(cfg);
   let raw: string;
   try {
     raw = fs.readFileSync(configPath, "utf8");
@@ -304,7 +312,7 @@ export function loadConfig(configPath = userConfigPath()): GuardConfig {
   try {
     data = parseToml(raw) as Record<string, unknown>;
   } catch (err) {
-    process.stderr.write(`[kimi-guard] failed to parse ${configPath}: ${(err as Error).message}\n`);
+    process.stderr.write(`[agent-guard] failed to parse ${configPath}: ${(err as Error).message}\n`);
     return cfg;
   }
 

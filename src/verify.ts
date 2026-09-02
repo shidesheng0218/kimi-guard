@@ -107,11 +107,11 @@ export function hasRecentEdits(sessionId: string, cfg: GuardConfig, now = Date.n
 }
 
 export const HOOKS_STOP_BLOCK_REASON =
-  "[kimi-guard] Blocked (verify): this turn ended after successful file edits with no successful " +
+  "[agent-guard] Blocked (verify): this turn ended after successful file edits with no successful " +
   "verification command (test/build/lint) in the session. Run your verification before claiming " +
   "completion, or state explicitly why it cannot run here.";
 
 export const WIRE_VERIFY_CORRECTIVE =
-  "[kimi-guard verification] Your final message claims tests/build pass, but no successful " +
+  "[agent-guard verification] Your final message claims tests/build pass, but no successful " +
   "verification command was recorded in this session. Actually run the verification now and base " +
   "your claims on real results, then restate the conclusion.";

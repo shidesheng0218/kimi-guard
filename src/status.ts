@@ -2,8 +2,9 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import pc from "picocolors";
 import { loadConfig } from "./config.js";
-import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath } from "./paths.js";
+import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath, claudeDetected, claudeSettingsPath } from "./paths.js";
 import { hooksInstalled } from "./installer.js";
+import { claudeHooksInstalled } from "./harness/claude.js";
 import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, type BlockKindStat } from "./store.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
@@ -70,7 +71,7 @@ export function buildGuardReport(cfg = loadConfig()): Record<string, unknown> {
   const sid = latestSessionId() ?? "unknown";
   const snap = budgetSnapshot(sid, cfg.budget);
   return {
-    tool: "kimi-guard",
+    tool: "agent-guard",
     generatedAt: new Date().toISOString(),
     sessions: knownSessions(1000).length,
     calls24h: s.calls24h,
@@ -85,15 +86,17 @@ export function buildGuardReport(cfg = loadConfig()): Record<string, unknown> {
   };
 }
 
-/** Best-effort detection of a running Kimi CLI process (unix only). */
-function kimiProcessRunning(): boolean {
+/** Best-effort detection of a running agent CLI process (unix only). */
+function agentProcessRunning(): boolean {
   if (process.platform !== "darwin" && process.platform !== "linux") return false;
   try {
     const r = spawnSync("ps", ["-eo", "args"], { encoding: "utf8", timeout: 3000, maxBuffer: 8 * 1024 * 1024 });
     if (r.status !== 0 || !r.stdout) return false;
-    return r.stdout
-      .split("\n")
-      .some((line) => /(?:^|[/\s])kimi(?:\s|$)/.test(line.trim()) && !line.includes("kimi-guard") && !line.includes("kguard"));
+    return r.stdout.split("\n").some((line) => {
+      const l = line.trim();
+      if (l.includes("agentguard") || l.includes("kimi-guard") || l.includes("kguard")) return false;
+      return /(?:^|[/\s])(kimi|claude)(?:\s|$)/.test(l);
+    });
   } catch {
     return false;
   }
@@ -106,7 +109,7 @@ export function cmdStatus(): void {
   const lastHookTs = Number(getMeta("last_hook_ts") ?? "0");
   const lastHook = lastHookTs > 0 ? `${new Date(lastHookTs).toISOString()} (${getMeta("last_hook_event") ?? "?"})` : "never";
   const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
-  console.log(`kimi-guard status (state: ${stateDbPath()})`);
+  console.log(`agent-guard status (state: ${stateDbPath()})`);
   console.log(`  last activity:       ${dt}`);
   console.log(`  last hook activity:  ${lastHook}`);
   if (normalizeMisses > 0) {
@@ -178,26 +181,43 @@ export function cmdDoctor(): number {
   }
 
   const kimi = detectKimiConfig();
-  check(
-    kimi.exists,
-    `kimi config found: ${kimi.path}`,
-    `kimi config not found (looked at ${kimi.path}); is Kimi Code CLI installed?`,
-  );
-  check(hooksInstalled(kimi.path), "hooks managed block present in kimi config", "hooks not installed — run: kguard install");
+  const hasClaude = claudeDetected();
+  if (kimi.exists || !hasClaude) {
+    check(
+      kimi.exists,
+      `kimi config found: ${kimi.path}`,
+      `kimi config not found (looked at ${kimi.path}); is Kimi Code CLI installed?`,
+    );
+    if (kimi.exists) {
+      check(hooksInstalled(kimi.path), "[kimi] hooks managed block present in kimi config", "[kimi] hooks not installed — run: agentguard install");
+    }
+  } else {
+    console.log(`  ${pc.dim("-")} kimi code not detected (skipped)`);
+  }
+
+  if (hasClaude) {
+    check(
+      claudeHooksInstalled(),
+      `[claude] hooks present in ${claudeSettingsPath()}`,
+      `[claude] hooks not installed — run: agentguard install --harness claude`,
+    );
+  } else {
+    console.log(`  ${pc.dim("-")} claude code not detected (skipped)`);
+  }
 
   const kimiConfigText = fs.existsSync(kimi.path) ? fs.readFileSync(kimi.path, "utf8") : "";
   const hasSecurityLayer = /kimi-boost managed|destructive|secret-guard|branch-guard|block-dangerous/i.test(kimiConfigText);
   if (hasSecurityLayer) {
     ok("security-layer hooks detected (authorization axis covered)");
   } else {
-    warn("no security-layer hooks detected — kimi-guard covers runtime behavior only (authorization axis). Consider kimi-boost presets: npx kimi-boost install");
+    warn("no security-layer hooks detected — agent-guard covers runtime behavior only (authorization axis). Consider kimi-boost presets: npx kimi-boost install");
   }
 
-  const which = spawnSync("kguard", ["--version"], { encoding: "utf8" });
+  const which = spawnSync("agentguard", ["--version"], { encoding: "utf8" });
   check(
-    which.status === 0 || Boolean(process.argv[1]?.includes("kimi-guard")),
-    "kguard resolves on PATH",
-    "kguard is not on PATH — hook commands will fail-open. Install globally: npm i -g kimi-guard",
+    which.status === 0 || Boolean(process.argv[1]?.includes("agentguard") || process.argv[1]?.includes("kimi-guard")),
+    "agentguard resolves on PATH",
+    "agentguard is not on PATH — hook commands will fail-open. Install globally: npm i -g agentguard",
   );
 
   const probeFile = probeLogPath();
@@ -241,7 +261,7 @@ export function cmdDoctor(): number {
     if (hooksInstalled(kimi.path)) {
       if (lastHookTs === 0) {
         warn("hooks installed but no hook activity recorded yet — the guard has never fired in this state db");
-      } else if (Date.now() - lastHookTs > 24 * 3_600_000 && kimiProcessRunning()) {
+      } else if (Date.now() - lastHookTs > 24 * 3_600_000 && agentProcessRunning()) {
         warn(
           `hooks installed but no hook activity for over 24h while a kimi process is running — ` +
             `the guard may be silently inert (CLI update? reinstall hooks with 'kguard install')`,

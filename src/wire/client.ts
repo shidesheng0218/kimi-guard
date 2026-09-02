@@ -150,7 +150,7 @@ export class WireClient {
         "initialize",
         {
           protocol_version: WIRE_PROTOCOL_VERSION,
-          client: { name: "kimi-guard", version },
+          client: { name: "agent-guard", version },
           capabilities: { supports_question: false },
           hooks: this.opts.hooks ?? [],
         },

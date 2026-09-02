@@ -3,7 +3,10 @@ import { Command } from "commander";
 import { version } from "./version.js";
 import { loadConfig, writeConfigTemplate } from "./config.js";
 import { installHooks, uninstallHooks } from "./installer.js";
+import { installClaudeHooks, uninstallClaudeHooks } from "./harness/claude.js";
+import { claudeDetected } from "./paths.js";
 import { runHook } from "./hook.js";
+import type { HarnessName } from "./toolsets.js";
 import { setMeta, listBlocks, setBlockFeedback } from "./store.js";
 import { cmdStatus, cmdDoctor, buildGuardReport } from "./status.js";
 import { probeLogPath, userConfigPath } from "./paths.js";
@@ -15,39 +18,67 @@ import { runSupervised, formatReport } from "./wire/supervisor.js";
 const program = new Command();
 
 program
-  .name("kguard")
-  .description("Runtime behavior guard for Kimi Code CLI: loop detection, quota gates, checkpoints")
+  .name("agentguard")
+  .description("Runtime behavior guard for coding agents (Kimi Code CLI & Claude Code): loop detection, quota gates, checkpoints")
   .version(version, "-V, --version", "print version");
 
 program
   .command("install")
-  .description("install hook rules into the Kimi Code CLI config.toml (idempotent, creates a backup first)")
+  .description("install hook rules into detected agent CLIs (Kimi Code config.toml and/or Claude Code settings.json)")
   .option("--compat", "legacy-safe mode: only the 3 universally supported hook events (for older kimi-cli versions)")
-  .action((opts: { compat?: boolean }) => {
-    const r = installHooks("kguard", Boolean(opts.compat));
-    console.log(`✓ config: ${r.configPath}${r.created ? " (created)" : ""}`);
-    if (r.backupPath) console.log(`✓ backup: ${r.backupPath}`);
-    console.log(r.replaced ? `✓ managed hook block updated${opts.compat ? " (compat)" : ""}` : `✓ managed hook block added${opts.compat ? " (compat)" : ""}`);
-    if (!opts.compat) {
-      console.log("  note: if your CLI fails to load config after this (older kimi-cli), reinstall with: kguard install --compat");
+  .option("--harness <name>", "kimi | claude | all (default: auto-detect installed harnesses, fallback kimi)")
+  .action((opts: { compat?: boolean; harness?: string }) => {
+    const which = opts.harness ?? "auto";
+    const doKimi = which === "kimi" || which === "all" || which === "auto";
+    const doClaude = which === "claude" || which === "all" || (which === "auto" && claudeDetected());
+    if (!doKimi && !doClaude) {
+      console.error(`unknown harness: ${which}`);
+      process.exitCode = 1;
+      return;
     }
-    console.log("  restart Kimi Code CLI (or /reload) to take effect.");
+
+    if (doKimi) {
+      const r = installHooks("agentguard", Boolean(opts.compat));
+      console.log(`✓ [kimi] config: ${r.configPath}${r.created ? " (created)" : ""}`);
+      if (r.backupPath) console.log(`✓ [kimi] backup: ${r.backupPath}`);
+      console.log(`✓ [kimi] managed hook block ${r.replaced ? "updated" : "added"}${opts.compat ? " (compat)" : ""}`);
+      if (!opts.compat) {
+        console.log("  note: if your CLI fails to load config after this (older kimi-cli), reinstall with: agentguard install --compat");
+      }
+    }
+    if (doClaude) {
+      const r = installClaudeHooks("agentguard", Boolean(opts.compat));
+      console.log(`✓ [claude] config: ${r.configPath}${r.created ? " (created)" : ""}`);
+      if (r.backupPath) console.log(`✓ [claude] backup: ${r.backupPath}`);
+      console.log(`✓ [claude] hooks ${r.updated ? "installed" : "already up to date"}${opts.compat ? " (compat)" : ""}`);
+    }
+    console.log("  restart the agent CLI (or /reload) to take effect.");
   });
 
 program
   .command("uninstall")
-  .description("remove the kimi-guard managed hook block from config.toml")
-  .action(() => {
-    const r = uninstallHooks();
-    console.log(r.removed ? `✓ removed managed block from ${r.configPath}` : `no managed block found in ${r.configPath}`);
+  .description("remove the managed hook entries from Kimi Code config.toml and Claude Code settings.json")
+  .option("--harness <name>", "kimi | claude | all (default: all)")
+  .action((opts: { harness?: string }) => {
+    const which = opts.harness ?? "all";
+    if (which === "kimi" || which === "all") {
+      const r = uninstallHooks();
+      console.log(r.removed ? `✓ [kimi] removed managed block from ${r.configPath}` : `[kimi] no managed block found in ${r.configPath}`);
+    }
+    if (which === "claude" || which === "all") {
+      const r = uninstallClaudeHooks();
+      console.log(r.removed ? `✓ [claude] removed hooks from ${r.configPath}` : `[claude] no managed hooks found in ${r.configPath}`);
+    }
   });
 
 program
   .command("hook")
   .argument("<event>", "hook event name, e.g. PreToolUse")
-  .description("hook entrypoint invoked by Kimi Code CLI (reads JSON payload from stdin)")
-  .action(async (event: string) => {
-    process.exitCode = await runHook(event);
+  .description("hook entrypoint invoked by the agent CLI (reads JSON payload from stdin)")
+  .option("--harness <name>", "kimi | claude (default: kimi)", "kimi")
+  .action(async (event: string, opts: { harness: string }) => {
+    const harness: HarnessName = opts.harness === "claude" ? "claude" : "kimi";
+    process.exitCode = await runHook(event, harness);
   });
 
 program
@@ -70,7 +101,7 @@ program
     const cfg = loadConfig();
     if (cfg.budget.precise) {
       const p = await refreshPreciseUsage(cfg.budget);
-      if (!p) console.error("[kimi-guard] precise metering unavailable (missing KIMI_API_KEY or API error) — showing event-based estimates");
+      if (!p) console.error("[agent-guard] precise metering unavailable (missing KIMI_API_KEY or API error) — showing event-based estimates");
     }
     const sid = opts.session ?? latestSessionId() ?? "unknown";
     console.log(formatSnapshot(budgetSnapshot(sid, cfg.budget)));
@@ -170,7 +201,7 @@ program
       console.log(JSON.stringify({ ...report, version }, null, 2));
       return;
     }
-    console.log(`kimi-guard report (${report.generatedAt})`);
+    console.log(`agent-guard report (${report.generatedAt})`);
     console.log(`  sessions: ${report.sessions}   calls 24h: ${report.calls24h}   blocks 24h: ${report.blocks24h}`);
     if (report.detectors.length === 0) console.log("  detectors: no blocks recorded");
     for (const d of report.detectors) {
@@ -205,7 +236,7 @@ probe
     for (const line of lines.slice(-Number(opts.last))) console.log(line);
   });
 
-const cfgCmd = program.command("config").description("manage ~/.kimi-guard/config.toml");
+const cfgCmd = program.command("config").description("manage the guard config.toml");
 cfgCmd
   .command("init")
   .description("create the config file with documented defaults")
@@ -273,6 +304,6 @@ program
   });
 
 program.parseAsync(process.argv).catch((err: Error) => {
-  process.stderr.write(`[kimi-guard] ${err.message}\n`);
+  process.stderr.write(`[agent-guard] ${err.message}\n`);
   process.exit(1);
 });

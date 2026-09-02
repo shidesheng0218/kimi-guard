@@ -104,7 +104,7 @@ export function normalizeCall(payload: HookPayload, event: string, ts = Date.now
   const tool = pickString(payload, ["tool_name", "toolName", "tool"]);
   if (!tool) return null;
   const args = pickField(payload, ["tool_input", "toolInput", "input"]) ?? {};
-  const outputKeys = ["tool_output", "toolOutput", "output", "result"];
+  const outputKeys = ["tool_output", "toolOutput", "tool_response", "output", "result"];
   const output =
     event === "PostToolUse"
       ? pickField(payload, outputKeys)

@@ -80,6 +80,8 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
     case "PostToolUseFailure":
       return handlePostTool(event, cfg, payload, sessionId, now);
     case "Stop": {
+      // Claude Code has no TurnStarted event; one Stop ≈ one completed turn ≈ 1+ requests
+      if (cfg.harness === "claude") recordEvent(sessionId, "turn", { origin: "stop" }, now);
       if (!cfg.verify.enabled || !cfg.verify.blockOnNoEvidence) return { code: 0 };
       if (!hasRecentEdits(sessionId, cfg, now)) return { code: 0 };
       if (hasEvidence(sessionId, cfg, now)) return { code: 0 };
@@ -121,7 +123,7 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
 
 /** Appended to every block message: the feedback loop's entry point. */
 function feedbackHint(id: number): string {
-  return `\n[kimi-guard] block #${id} recorded. If this was a false positive, run: kguard feedback fp ${id}`;
+  return `\n[agent-guard] block #${id} recorded. If this was a false positive, run: kguard feedback fp ${id}`;
 }
 
 function noteNormalizeMiss(now: number): void {
@@ -215,7 +217,7 @@ export function handleGoalAnchor(payload: HookPayload, sessionId: string, cfg: G
   return {
     code: 0,
     stdout:
-      `[kimi-guard] goal anchor (injected ${afterCompaction ? "after compaction" : `every ${cfg.anchor.everyNPrompts} prompts`}): ` +
+      `[agent-guard] goal anchor (injected ${afterCompaction ? "after compaction" : `every ${cfg.anchor.everyNPrompts} prompts`}): ` +
       `the user's task for this session, verbatim: "${goal}". ` +
       `Re-evaluate: does the current work still serve this goal? If you have drifted, get back on ` +
       `target; if the goal is already met, stop and summarize.`,

@@ -1,14 +1,15 @@
 {
-  "name": "kimi-guard",
-  "version": "0.7.0",
-  "description": "Runtime behavior guard for Kimi Code CLI: loop detection, quota gates, checkpoint/resume, supervised Wire runs",
+  "name": "agentguard",
+  "version": "0.8.0",
+  "description": "Runtime behavior guard for coding agents (Kimi Code CLI & Claude Code): loop detection, quota gates, checkpoint/resume, supervised Wire runs",
   "type": "module",
   "license": "MIT",
   "author": "Mike Shi <670258236@qq.com>",
   "homepage": "https://github.com/shidesheng0218/kimi-guard#readme",
   "bin": {
-    "kimi-guard": "dist/cli.js",
-    "kguard": "dist/cli.js"
+    "agentguard": "dist/cli.js",
+    "kguard": "dist/cli.js",
+    "kimi-guard": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -29,10 +30,12 @@
     "kimi-code",
     "kimi-cli",
     "moonshot",
+    "claude-code",
     "ai-agent",
     "hooks",
     "circuit-breaker",
     "quota-guard",
+    "agent-guardrails",
     "cli"
   ],
   "repository": {

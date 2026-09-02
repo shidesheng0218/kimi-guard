@@ -90,7 +90,7 @@ describe("supervised run (integration with fake Wire server)", () => {
     expect(r.steers.length).toBeGreaterThanOrEqual(1);
     const entries = await fakeEntries();
     const steers = entries.filter((e) => e.dir === "steer");
-    expect(steers.some((s) => String(s.text).includes("kimi-guard"))).toBe(true);
+    expect(steers.some((s) => String(s.text).includes("agent-guard"))).toBe(true);
   }, 20000);
 
   it("approval policy reject: feedback sent back to the agent", async () => {
@@ -168,7 +168,7 @@ describe("supervised run (integration with fake Wire server)", () => {
     expect(r.verifyRounds).toBeGreaterThanOrEqual(1);
     const entries = await fakeEntries();
     const prompts = entries.filter((e) => e.dir === "prompt");
-    expect(prompts.some((p) => String(p.userInput ?? "").includes("kimi-guard verification"))).toBe(true);
+    expect(prompts.some((p) => String(p.userInput ?? "").includes("agent-guard verification"))).toBe(true);
     // evidence from the corrective round exists → recorded as a successful Shell call
     const { callsSince } = await import("../../src/store.js");
     const rows = callsSince(r.runId, Date.now() - 60_000);

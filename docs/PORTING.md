@@ -1,6 +1,8 @@
 # Porting the analyzer core to other harnesses
 
-kimi-guard's loop/budget/checkpoint engines were designed so the **decision core is harness-agnostic**. This document is the checklist for building an adapter for another agent harness (Claude Code, Codex CLI, Gemini CLI, custom agents) without forking the analysis layer.
+kimi-guard's loop/budget/checkpoint engines were designed so the **decision core is harness-agnostic**. This document is the checklist for building an adapter for another agent harness (Codex CLI, Gemini CLI, custom agents) without forking the analysis layer.
+
+> **Status:** the Claude Code adapter shipped in v0.8 (see `src/harness/claude.ts` + `--harness claude`) — the checklist below was validated against it. Remaining targets: Codex CLI, Gemini CLI.
 
 ## What is portable today
 
@@ -16,7 +18,7 @@ kimi-guard's loop/budget/checkpoint engines were designed so the **decision core
 ## What an adapter must provide
 
 1. **Event capture** — a way to observe tool calls (name + args + output + status + timestamp) and write them into `store.recordCall()`.
-   - Claude Code: `PreToolUse`/`PostToolUse` hooks → the same payload shapes kimi-guard already normalizes (`tool_name`, `tool_input`, `tool_output`).
+   - Claude Code: ✅ shipped in v0.8 — `PreToolUse`/`PostToolUse`/`PostToolUseFailure` payloads (`tool_name`, `tool_input`, `tool_response`) flow through the existing normalization layer unchanged.
    - Codex CLI: hooks cover shell commands; native file tools are NOT intercepted (documented limitation) — evidence-dependent detectors (churn, no-progress) degrade accordingly. This is an inherent ceiling of any hooks-based adapter, not a kimi-guard gap.
 2. **Decision transport** — how a block reaches the harness.
    - Claude Code: `PreToolUse` hook, exit code 2 + stderr (identical semantics to Kimi's hooks).

@@ -152,7 +152,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
     steersSent++;
     report.steers.push({ kind, message, ts: Date.now() });
     try {
-      await client.steer(`[kimi-guard] ${message}`);
+      await client.steer(`[agent-guard] ${message}`);
     } catch {
       /* no turn in progress or steer unsupported — advisory only */
     }
@@ -342,7 +342,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
           request_id: p.id,
           response: "reject",
           feedback:
-            "kimi-guard run: interactive approvals are unavailable in supervised headless mode. Continue with non-interactive steps only, or summarize your findings.",
+            "agent-guard run: interactive approvals are unavailable in supervised headless mode. Continue with non-interactive steps only, or summarize your findings.",
         };
       }
       case "QuestionRequest": {
@@ -360,7 +360,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
         request_id: p.id,
         action: "block",
         reason:
-          "[kimi-guard] CIRCUIT BREAK: this session has hit the intervention limit. Stop making tool calls, summarize your findings, and end the turn.",
+          "[agent-guard] CIRCUIT BREAK: this session has hit the intervention limit. Stop making tool calls, summarize your findings, and end the turn.",
       };
     }
     if (cancelled) {
@@ -393,7 +393,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
         cancelled = true;
         void client.cancel().catch(() => {});
       }
-      return { request_id: p.id, action: "block", reason: `[kimi-guard] Blocked (${block.kind}): ${block.message}` };
+      return { request_id: p.id, action: "block", reason: `[agent-guard] Blocked (${block.kind}): ${block.message}` };
     }
 
     const warn = analysis.findings.find((f) => f.severity === "warn");
@@ -516,7 +516,7 @@ function extractFile(args: unknown): string | null {
 export function formatReport(r: RunReport): string {
   const dur = Math.round(r.durationMs / 1000);
   const lines = [
-    `kimi-guard run report`,
+    `agent-guard run report`,
     `  run id:   ${r.runId}`,
     `  command:  ${r.command.join(" ")}`,
     `  duration: ${dur}s   steps: ${r.steps}   tool calls: ${r.toolCalls}   turns: ${r.turns}${r.resumes > 0 ? ` (resumed ×${r.resumes})` : ""}`,

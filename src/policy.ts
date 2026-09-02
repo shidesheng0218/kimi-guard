@@ -11,7 +11,7 @@ export interface PolicyDecision {
 }
 
 const KILL_SWITCH_MESSAGE =
-  "[kimi-guard] CIRCUIT BREAK: this session has hit the intervention limit. " +
+  "[agent-guard] CIRCUIT BREAK: this session has hit the intervention limit. " +
   "Stop making tool calls immediately. Do not attempt to work around this guard. " +
   "Summarize what you have learned so far, state what remains blocked and why, " +
   "and end your turn so the user can review the situation.";
@@ -40,11 +40,11 @@ export function resolveFindings(
   }
   const block = findings.find((f) => f.severity === "block");
   if (block) {
-    return { action: "block", blockReason: `[kimi-guard] Blocked (${block.kind}): ${block.message}` };
+    return { action: "block", blockReason: `[agent-guard] Blocked (${block.kind}): ${block.message}` };
   }
   const warns = findings.filter((f) => f.severity === "warn");
   if (warns.length > 0) {
-    const hint = warns.map((f) => `[kimi-guard] note (${f.kind}): ${f.message}`).join(" | ");
+    const hint = warns.map((f) => `[agent-guard] note (${f.kind}): ${f.message}`).join(" | ");
     return { action: "warn", contextHint: hint };
   }
   return { action: "allow" };

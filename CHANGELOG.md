@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 — 2026-09-01
+
+- 🌉 **Claude Code support**: the full hooks-mode guard (loop/churn/explore detection, quota gate, completion gate, kill switch, checkpoints, feedback loop) now works on Claude Code. `agentguard install` auto-detects harnesses and writes managed hook entries into `~/.claude/settings.json` (backup + idempotent + clean uninstall). Warn hints are delivered via `hookSpecificOutput.additionalContext`; blocks use the same exit-2 semantics. Wire-mode supervision (`run`), mid-turn steering and official-API precise metering remain Kimi-exclusive; Claude budget metering counts completed turns (Claude has no per-request hook event and no machine-readable plan API).
+- 🏷️ **Renamed to `agentguard`**: the package is now `npm i -g agentguard`; `kguard`/`kimi-guard` remain as bin aliases, existing installs keep working. Guard state moves to `~/.agent-guard` (an existing `~/.kimi-guard` keeps being used in place; `$AGENT_GUARD_HOME` and `$KIMI_GUARD_HOME` both honored).
+- 🔧 Per-harness tool-name defaults (Claude: Bash/Read/Write/Edit/Glob/Glob/Task) applied before the user config overlay — the `[tools]` taxonomy from 0.6.2 does its job.
+
 ## 0.7.0 — 2026-09-01
 
 - 🗳️ **False-positive feedback loop**: every block message now carries its block id (`block #N recorded — if this was a false positive, run: kguard feedback fp N`). New commands: `kguard blocks` (recent blocks with ids), `kguard feedback fp|tp <id>`.

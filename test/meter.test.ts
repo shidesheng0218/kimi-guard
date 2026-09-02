@@ -204,7 +204,7 @@ describe("checkpoint engine", () => {
     const cp = captureCheckpoint("s3", "interrupt");
     expect(cp).not.toBeNull();
     const block = renderResumeBlock(cp!.brief, "interrupt");
-    expect(block).toContain("<kimi-guard-resume");
+    expect(block).toContain("<agent-guard-resume");
     expect(block).toContain("Do NOT re-explore");
     expect(block).toContain("cargo test");
   });

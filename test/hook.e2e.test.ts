@@ -51,7 +51,7 @@ describe("hook e2e (spawns the real CLI)", () => {
     expect(runHook("PostToolUse", payload, repoRoot).code).toBe(0);
     const pre = runHook("PreToolUse", payload, repoRoot);
     expect(pre.code).toBe(2);
-    expect(pre.stderr).toContain("[kimi-guard]");
+    expect(pre.stderr).toContain("[agent-guard]");
     expect(pre.stderr).toContain("3 times");
   });
 

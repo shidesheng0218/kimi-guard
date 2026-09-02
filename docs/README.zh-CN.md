@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🛡️ kimi-guard
+# 🛡️ agent-guard（原 kimi-guard）
 
-**给 Kimi Code CLI 加一层编排守护：在 Agent 失控烧掉你的额度之前把它拦下来。**
+**给 Kimi Code CLI 和 Claude Code 加一层运行时行为守护：在 Agent 失控烧掉你的额度之前把它拦下来。**
 
-`npm i -g kimi-guard && kguard install` → 装完即用。
+`npm i -g agentguard && agentguard install` → 装完即用（自动探测已安装的 harness)。老用户：`kguard`/`kimi-guard` 命令继续可用。
 
 </div>
 
@@ -61,12 +61,23 @@ kimi-guard 不是预设包，而是一个**运行时行为分析与执行引擎*
 ## 安装
 
 ```sh
-npm i -g kimi-guard
-kguard install        # 向 ~/.kimi-code/config.toml 写入托管的 [[hooks]] 区块
-kguard doctor         # 自检
+npm i -g agentguard
+agentguard install    # 自动探测并接管已装的 harness
+                      #（Kimi Code: ~/.kimi-code/config.toml · Claude Code: ~/.claude/settings.json）
+agentguard doctor     # 自检
 ```
 
-需要 Node >= 22.13。安装后重启 Kimi Code CLI（或 `/reload`）生效。
+需要 Node >= 22.13。安装后重启对应 Agent CLI（或 `/reload`）生效。
+
+### Harness 支持矩阵
+
+| 能力 | Kimi Code CLI | Claude Code |
+|---|---|---|
+| 循环/抖动/探索漂移检测、保险丝 | ✅ hooks | ✅ hooks |
+| 配额闸门 | ✅ 事件估算 + 官方 API 精确计量（`[budget] precise`） | ✅ 事件估算 |
+| 完工闸门（声明 vs 证据） | ✅ | ✅ |
+| 检查点/恢复、误报反馈、聚合报告 | ✅ | ✅ |
+| `agentguard run` Wire 监督、轮中纠偏 | ✅ | —（仅 hooks 模式） |
 
 - 分析器在内部决定监控哪些工具——hook 观察所有工具，监控清单可随时改配置，无需重装。
 - 首次安装前自动备份（`config.toml.kimi-guard.bak`），`kguard uninstall` 干净移除，托管区块可与 kimi-boost 等其他工具的区块共存。

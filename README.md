@@ -1,12 +1,12 @@
 <div align="center">
 
-# 🛡️ kimi-guard
+# 🛡️ agent-guard (formerly kimi-guard)
 
-**An orchestration guard layer for [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) — stop runaway agent loops before they burn your quota.**
+**A runtime behavior guard for coding agents — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) and [Claude Code](https://code.claude.com) — stop runaway agent loops before they burn your quota.**
 
-`npm i -g kimi-guard && kguard install` → done.
+`npm i -g agentguard && agentguard install` → done. (Existing users: `kguard`/`kimi-guard` keep working as aliases.)
 
-[![npm](https://img.shields.io/npm/v/kimi-guard?style=flat-square)](https://www.npmjs.com/package/kimi-guard)
+[![npm](https://img.shields.io/npm/v/agentguard?style=flat-square)](https://www.npmjs.com/package/agentguard)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/shidesheng0218/kimi-guard/ci.yml?style=flat-square&label=CI)](/.github/workflows/ci.yml)
 
@@ -35,6 +35,8 @@ Kimi Code CLI is a great open-source coding agent, but its subagent system has k
 - A mid-batch quota error leaves **half-written workspaces** that poison the whole run.
 
 kimi-guard is a local, zero-daemon guard that sits on the CLI's official [hooks system](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html) and enforces hard caps — no source forking, no proxy, no account access.
+
+Since v0.8 the same engine also guards **Claude Code** via its [hooks system](https://code.claude.com/docs/en/hooks) (`agentguard install` auto-detects installed harnesses). Wire-mode supervision (`agentguard run`), mid-turn steering and official-API quota metering remain Kimi-exclusive; loop/churn/explore detection, quota gates, the completion gate, kill switch and checkpoints work on both.
 
 ## Features
 
@@ -65,31 +67,44 @@ Everything is **fail-open**: if kimi-guard itself errors, the agent keeps workin
 ## Install
 
 ```sh
-npm i -g kimi-guard
-kguard install        # writes a managed [[hooks]] block into ~/.kimi-code/config.toml
-kguard doctor         # verify
+npm i -g agentguard
+agentguard install    # writes managed hooks into every detected harness
+                      # (Kimi Code: ~/.kimi-code/config.toml · Claude Code: ~/.claude/settings.json)
+agentguard doctor     # verify
 ```
 
-Requires Node >= 22.13. Restart Kimi Code CLI (or `/reload`) after installing.
+Requires Node >= 22.13. Restart the agent CLI (or `/reload`) after installing.
+
+### Harness support
+
+| Capability | Kimi Code CLI | Claude Code |
+|---|---|---|
+| Loop / churn / explore detection, kill switch | ✅ hooks | ✅ hooks |
+| Quota gates | ✅ event-based + official-API precise (`[budget] precise`) | ✅ event-based estimates |
+| Completion gate (claim vs evidence) | ✅ | ✅ |
+| Checkpoints / resume, feedback loop, reports | ✅ | ✅ |
+| `agentguard run` Wire supervision, mid-turn steer | ✅ | — (hooks only) |
 
 <details>
-<summary>What <code>kguard install</code> writes to config.toml</summary>
+<summary>What <code>agentguard install</code> writes</summary>
+
+Kimi Code (`~/.kimi-code/config.toml`):
 
 ```toml
 # >>> kimi-guard managed >>> DO NOT EDIT
 [[hooks]]
 event = "PreToolUse"
-command = "kguard hook PreToolUse"
+command = "agentguard hook PreToolUse"
 timeout = 5
 
 [[hooks]]
 event = "PostToolUse"
-command = "kguard hook PostToolUse"
+command = "agentguard hook PostToolUse"
 timeout = 5
 
 [[hooks]]
 event = "PostToolUseFailure"
-command = "kguard hook PostToolUseFailure"
+command = "agentguard hook PostToolUseFailure"
 timeout = 5
 
 # + observation hooks: TurnStarted, SubagentStart, StopFailure, Interrupt, SessionEnd
@@ -97,16 +112,31 @@ timeout = 5
 # <<< kimi-guard <<<
 ```
 
+Claude Code (`~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook PreToolUse --harness claude", "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+(+ PostToolUse, PostToolUseFailure, UserPromptSubmit, Stop, SubagentStart, SessionStart/End, PreCompact/PostCompact, StopFailure — the events the guard handles.)
+
 - Analyzers decide *which* tools to watch internally — the hooks observe everything, so the watch lists stay configurable without reinstalling.
-- A backup (`config.toml.kimi-guard.bak`) is created before the first install. `kguard uninstall` removes the block cleanly. The block coexists with other tools' managed blocks (e.g. kimi-boost).
-- **Legacy compatibility**: if your CLI version rejects unknown hook events (older kimi-cli builds), run `kguard install --compat` to write only the 3 universally supported events. You keep loop guarding; you lose auto-checkpointing and event-based metering.
+- A backup is created before the first install (`config.toml.kimi-guard.bak` / `settings.json.agentguard.bak`). `agentguard uninstall` removes the entries cleanly from both harnesses. The Kimi block coexists with other tools' managed blocks (e.g. kimi-boost).
+- **Legacy compatibility**: if your CLI version rejects unknown hook events (older kimi-cli builds), run `agentguard install --compat` to write only the 3 universally supported events. You keep loop guarding; you lose auto-checkpointing and event-based metering.
 
 </details>
 
 ## Commands
 
 ```sh
-kguard install          # add hook rules to the Kimi config (idempotent)
+# binary is `agentguard`; `kguard` / `kimi-guard` remain as aliases — all commands work with either name
+kguard install          # add hook rules to detected agent CLIs (idempotent)
 kguard uninstall        # remove the managed hook block
 kguard status           # calls, interventions, sessions, budget windows + intervention quality
 kguard budget           # quota metering snapshot: windows, burn rate, projection
@@ -355,8 +385,9 @@ The behavioral-enforcement niche is not just empty in the Kimi ecosystem — a s
 
 ## Compatibility
 
-- Works with Kimi Code CLI hooks (Beta). Hook payloads are parsed defensively; run `kguard probe on` + `kguard doctor` to see the exact fields your CLI version sends.
-- Config detection: `$KIMI_CONFIG_PATH` → `~/.kimi-code/config.toml` → `~/.kimi/config.toml`.
+- Kimi Code CLI hooks (Beta) and Claude Code hooks (33 events; we use the 11 the guard handles). Hook payloads are parsed defensively; run `agentguard probe on` + `agentguard doctor` to see the exact fields your CLI version sends.
+- Config detection: `$KIMI_CONFIG_PATH` → `~/.kimi-code/config.toml` → `~/.kimi/config.toml`; Claude: `$CLAUDE_SETTINGS_PATH` → `~/.claude/settings.json`.
+- Guard state dir: `$AGENT_GUARD_HOME` → `$KIMI_GUARD_HOME` → `~/.agent-guard` (existing `~/.kimi-guard` keeps working in place).
 
 ## License
 

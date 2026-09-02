@@ -63,7 +63,7 @@ export function buildBrief(sessionId: string, now = Date.now(), windowMs = 6 * 3
   }
 
   const lines: string[] = [];
-  lines.push("## Observed activity (auto-captured by kimi-guard)");
+  lines.push("## Observed activity (auto-captured by agent-guard)");
   lines.push("");
   if (files.size > 0) {
     lines.push("### Files touched");
@@ -108,7 +108,7 @@ export function captureCheckpoint(sessionId: string, reason: string, now = Date.
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${now}-${reason.replace(/[^\w-]/g, "_")}.md`);
   const header = [
-    `# kimi-guard checkpoint`,
+    `# agent-guard checkpoint`,
     ``,
     `- session: ${sessionId}`,
     `- time: ${new Date(now).toISOString()}`,
@@ -147,12 +147,12 @@ export function latestCheckpointFile(sessionId?: string): string | null {
 
 export function renderResumeBlock(brief: string, reason: string): string {
   return [
-    `<kimi-guard-resume reason="${reason}">`,
+    `<agent-guard-resume reason="${reason}">`,
     "You are resuming a task that was interrupted. Use the observed state below as verified",
     "prior knowledge. Do NOT re-explore files you have already read, do NOT redo searches",
     "listed here, and do NOT repeat failed calls. Continue from the last known state.",
     "",
     brief,
-    "</kimi-guard-resume>",
+    "</agent-guard-resume>",
   ].join("\n");
 }

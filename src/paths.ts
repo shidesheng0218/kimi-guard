@@ -3,9 +3,25 @@ import os from "node:os";
 import path from "node:path";
 
 export function guardHome(): string {
-  const env = process.env.KIMI_GUARD_HOME;
+  const env = process.env.AGENT_GUARD_HOME ?? process.env.KIMI_GUARD_HOME;
   if (env && env.trim()) return path.resolve(env);
-  return path.join(os.homedir(), ".kimi-guard");
+  const fresh = path.join(os.homedir(), ".agent-guard");
+  const legacy = path.join(os.homedir(), ".kimi-guard");
+  // legacy installs keep working in place until the user moves the directory
+  if (!fs.existsSync(fresh) && fs.existsSync(legacy)) return legacy;
+  return fresh;
+}
+
+/** Claude Code user settings (hooks live here). */
+export function claudeSettingsPath(): string {
+  const env = process.env.CLAUDE_SETTINGS_PATH;
+  if (env && env.trim()) return path.resolve(env);
+  return path.join(os.homedir(), ".claude", "settings.json");
+}
+
+/** Is Claude Code present on this machine? (settings file or config dir) */
+export function claudeDetected(): boolean {
+  return fs.existsSync(claudeSettingsPath()) || fs.existsSync(path.join(os.homedir(), ".claude"));
 }
 
 export function stateDbPath(): string {

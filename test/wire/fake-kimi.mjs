@@ -260,8 +260,8 @@ async function runScenario(promptId, userInput) {
 
   if (scenario === "claim") {
     // first prompt: claims "All tests pass" with no evidence → expect a verify round;
-    // corrective prompt (contains "kimi-guard verification"): run tests for real, then finish
-    if (userInput.includes("kimi-guard verification")) {
+    // corrective prompt (contains "agent-guard verification"): run tests for real, then finish
+    if (userInput.includes("agent-guard verification")) {
       event("StepBegin", { n: 1 });
       const okCall = await doToolCall("tc-v", "Shell", { command: "npm test" }, "all tests passed");
       event("ContentPart", { type: "text", text: "All tests pass now. The refactor is verified." });
