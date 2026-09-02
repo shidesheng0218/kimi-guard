@@ -16,7 +16,7 @@ Sleep 200ms
 Type "export CLAUDE_SETTINGS_PATH=/tmp/kg/claude/settings.json"
 Enter
 Sleep 200ms
-Type "npm i -g agentguard"
+Type "npm i -g @shidesheng0218/agentguard"
 Enter
 Sleep 2200ms
 Type "agentguard install"

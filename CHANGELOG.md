@@ -1,9 +1,15 @@
 # Changelog
 
+## 0.8.1 — 2026-09-02
+
+- 📦 **Published as scoped `@shidesheng0218/agentguard`** (npm squat protection blocks the bare `agentguard` name; the CLI binary is still `agentguard`).
+- 🧩 **Bin aliases dropped from the new package**: `0.8.0` shipped `kguard`/`kimi-guard` aliases, which collide with an existing global `kimi-guard` install (npm EEXIST). The new package provides only `agentguard`; an installed legacy `kimi-guard` package keeps serving its own bins, so both coexist and old hook entries keep working.
+- 🔌 **Self-hosted Claude Code plugin marketplace**: this repo doubles as a marketplace — `/plugin marketplace add shidesheng0218/kimi-guard` then `/plugin install agent-guard@agentguard`.
+
 ## 0.8.0 — 2026-09-01
 
 - 🌉 **Claude Code support**: the full hooks-mode guard (loop/churn/explore detection, quota gate, completion gate, kill switch, checkpoints, feedback loop) now works on Claude Code. `agentguard install` auto-detects harnesses and writes managed hook entries into `~/.claude/settings.json` (backup + idempotent + clean uninstall). Warn hints are delivered via `hookSpecificOutput.additionalContext`; blocks use the same exit-2 semantics. Wire-mode supervision (`run`), mid-turn steering and official-API precise metering remain Kimi-exclusive; Claude budget metering counts completed turns (Claude has no per-request hook event and no machine-readable plan API).
-- 🏷️ **Renamed to `agentguard`**: the package is now `npm i -g @shidesheng0218/agentguard` (scoped — the bare `agentguard` name was blocked by npm squat protection); `kguard`/`kimi-guard` remain as bin aliases, existing installs keep working. Guard state moves to `~/.agent-guard` (an existing `~/.kimi-guard` keeps being used in place; `$AGENT_GUARD_HOME` and `$KIMI_GUARD_HOME` both honored).
+- 🏷️ **Renamed to `agentguard`**: the package is now `npm i -g @shidesheng0218/agentguard` (scoped — the bare `agentguard` name was blocked by npm squat protection); existing `kimi-guard` installs keep working (their `kguard`/`kimi-guard` bins stay live; see 0.8.1 for the bin-collision fix). Guard state moves to `~/.agent-guard` (an existing `~/.kimi-guard` keeps being used in place; `$AGENT_GUARD_HOME` and `$KIMI_GUARD_HOME` both honored).
 - 🔧 Per-harness tool-name defaults (Claude: Bash/Read/Write/Edit/Glob/Glob/Task) applied before the user config overlay — the `[tools]` taxonomy from 0.6.2 does its job.
 
 ## 0.7.0 — 2026-09-01
