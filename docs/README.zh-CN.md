@@ -30,11 +30,11 @@ Kimi Code CLI 是优秀的开源编码 Agent，但它的子代理系统存在已
 - 所有子代理**共享同一个 API key**，一批并行派发就能把 TPM/RPM 打爆，全部挂起。
 - 批次中途配额报错会留下**写了一半的工作区**，毒害整个任务。
 
-kimi-guard 是一个本地零守护进程的守护层，挂在 CLI 官方 [Hooks 系统](https://www.kimi.com/code/docs/kimi-code-cli/customization/hooks.html) 上强制熔断——不 fork 源码、不走代理、不碰账号。
+agent-guard 是一个本地零守护进程的守护层，挂在 CLI 官方 [Hooks 系统](https://www.kimi.com/code/docs/kimi-code-cli/customization/hooks.html) 上强制熔断——不 fork 源码、不走代理、不碰账号。
 
 ## 功能
 
-kimi-guard 不是预设包，而是一个**运行时行为分析与执行引擎**。每次工具调用都会经过归一化层 → 纯函数分析器 → 策略引擎，产出分级动作（观察 / 警告 / 阻断 / 全停）。
+agent-guard 不是预设包，而是一个**运行时行为分析与执行引擎**。每次工具调用都会经过归一化层 → 纯函数分析器 → 策略引擎，产出分级动作（观察 / 警告 / 阻断 / 全停）。
 
 | 守护 | 检测信号 | 动作 |
 |---|---|---|
@@ -56,7 +56,7 @@ kimi-guard 不是预设包，而是一个**运行时行为分析与执行引擎*
 
 警告级发现通过官方 stdout 机制注入模型上下文，让 Agent **在阻断发生前自我纠正**；阻断时把结构化原因回传给模型（官方 exit code 2 机制）。
 
-一切 **fail-open**：kimi-guard 自身出错时 Agent 照常工作。它是安全网，不是单点故障。
+一切 **fail-open**：agent-guard 自身出错时 Agent 照常工作。它是安全网，不是单点故障。
 
 ## 安装
 
@@ -202,7 +202,7 @@ flowchart LR
     subgraph KIMI["Kimi Code CLI"]
         A["工具调用"] -->|"hook 事件 / Wire 消息"| B
     end
-    subgraph GUARD["kimi-guard"]
+    subgraph GUARD["agent-guard"]
         B["归一化层<br/>schema 变体容忍<br/>+ 输出哈希"] --> C["分析器（纯函数）<br/>重复 · 周期 · 无增益 · 抖动<br/>无进展 · 近似重复 · 探索漂移"]
         M["预算引擎<br/>5h/周窗口<br/>燃烧率外推"] --> C
         C --> D["策略引擎<br/>发现 → 动作<br/>+ 保险丝"]
@@ -218,7 +218,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant A as Agent
-    participant G as kimi-guard
+    participant G as agent-guard
     participant DB as 本地证据（state.db）
     A->>A: 执行工具（Shell、编辑…）
     A->>G: 轮次结束，声称“测试全部通过”
@@ -265,17 +265,17 @@ Kimi Code CLI ──hook 事件──▶ kguard hook <event>（stdin 收 JSON）
 
 ## 生态分工
 
-Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互为竞品对谁都没好处。kimi-guard 占据其中一层——下面是诚实的地图：
+Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互为竞品对谁都没好处。agent-guard 占据其中一层——下面是诚实的地图：
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  你的 Agent（Kimi Code CLI）                                     │
+│  你的 Agent（Kimi Code CLI · Claude Code）                      │
 │                                                                │
 │  内置 loop_control          步数/重试上限 + 自动压缩              │
 │  ├─ 机械计数器——让循环停下，但不会解释，更不会纠偏               │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  kimi-guard（本项目）—— 执行层                            │  │
+│  │  agent-guard（本项目）—— 执行层                           │  │
 │  │  语义循环检测 · 配额闸门 · 轮中纠偏 ·                      │  │
 │  │  检查点 · 目标锚定 —— Agent 绕不过去                       │  │
 │  └──────────────────────────────────────────────────────────┘  │
@@ -286,7 +286,7 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 │                                                                │
 │  kimi-boost                  安全预设安装器                      │
 │  ├─ 危险命令拦截、分支保护、skills 预设                          │
-│  ├─ 管"Agent 能做什么"（授权轴）——与 kimi-guard 管的            │
+│  ├─ 管"Agent 能做什么"（授权轴）——与 agent-guard 管的            │
 │  │  "Agent 行为怎么跑"（运行时轴）是两个正交维度                 │
 │                                                                │
 │  cli-agent-runner            生命周期监督层                      │
@@ -300,24 +300,24 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 
 **三句话定位：**
 
-1. **监控者很多，自愿的编排者也有——但不可绕过的执行层守护，Kimi 生态里只有 kimi-guard。**（ccusage 系只读；kimi-session-orchestrator 依赖 Agent 自觉调用；kimi-guard 是拦截。）
+1. **监控者很多，自愿的编排者也有——但不可绕过的执行层守护，Kimi 生态里只有 agent-guard。**（ccusage 系只读；kimi-session-orchestrator 依赖 Agent 自觉调用；agent-guard 是拦截。）
 2. **轮中纠偏是 hook 生命周期边界之外的干预——经核实没有任何已发布产品做到：外部监督器（如 [loop-eng/loopguard](https://github.com/loop-eng/loopguard)）只能 SIGSTOP 暂停进程再弹桌面通知；进程内检测库（[LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster)）需要宿主应用自己执行决策；安全 hook 套件（cc-safety-net）只在执行前拦截。我们用官方 Wire 协议原生做到。**
 3. **预算模型理解 Kimi 订阅制：5h/周请求窗口、保留余量、燃烧率外推——按 USD 计费的竞品在套餐用户面前不对账。**
 
 **我们刻意不做的事**（方便你找对工具）：
 
 - 安全扫描 / 破坏性命令拦截 → 用 **kimi-boost** 的预设（不同轴：授权 vs 行为）。`kguard doctor` 会探测安全层是否存在，缺了会指路过去。
-- 完工验证：kimi-guard 已内置**确定性的"声明 vs 证据"闸门**（无 LLM 参与），外加**可选的一次性 LLM 否决票**抑制误报（`VETO: yes|no` 投票协议、单会话额度上限、任何错误一律维持阻断）。要更重的语义验证（refute-by-default 评审、LLM 评分），看 kimi-session-orchestrator 的 `grade_step` 或多 runtime 治理套件的 refute-by-default 模式。
+- 完工验证：agent-guard 已内置**确定性的"声明 vs 证据"闸门**（无 LLM 参与），外加**可选的一次性 LLM 否决票**抑制误报（`VETO: yes|no` 投票协议、单会话额度上限、任何错误一律维持阻断）。要更重的语义验证（refute-by-default 评审、LLM 评分），看 kimi-session-orchestrator 的 `grade_step` 或多 runtime 治理套件的 refute-by-default 模式。
 - 跨 runtime 可移植（Claude Code / Codex / Gemini）→ 设计使然，我们的杠杆就是 Kimi 的 Wire 协议。分析器核心（`src/analysis.ts`）是纯函数，想写适配器可以直接复用
 - 进程级监督（SIGSTOP/SIGCONT、systemd）→ **cli-agent-runner** 占据那一层；我们做的是 harness 内的语义干预
 
-值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。kimi-guard 与 [kimi-boost](https://github.com/shidesheng0218/kimi-boost) 出自同一作者，按产品线设计成一对：boost 管授权轴，guard 管行为轴。
+值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。agent-guard 与 [kimi-boost](https://github.com/shidesheng0218/kimi-boost) 出自同一作者，按产品线设计成一对：boost 管授权轴，guard 管行为轴。
 
 ### 跨生态竞品格局（2026-09 核实）
 
 行为执行层这个生态位不只是 Kimi 生态空缺——对更广的 coding agent 工具链做了一轮调研，没有找到已发布的等价物：
 
-| 工具 | 机制 | 与 kimi-guard 的对比 |
+| 工具 | 机制 | 与 agent-guard 的对比 |
 |---|---|---|
 | [cc-safety-net](https://github.com/kenryu42/cc-safety-net)（1.5k★，13 个 CLI 含 Kimi Code） | 执行前 hooks | 拦危险命令/密钥访问——授权轴。无循环检测、无配额、无纠偏。证明了多 runtime hooks 的市场需求。 |
 | [ccusage](https://github.com/ccusage/ccusage)（18k★） | 日志分析 | 覆盖 18 个 agent CLI 的只读用量报表，从不拦截。用量数据层已经商品化，执行层才是空缺。 |
@@ -327,7 +327,7 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 | [ralph](https://github.com/frankbria/ralph-claude-code)（9.6k★） | shell 包装循环 | 只在迭代边界做退出闸门和限速——靠重启"绕过"失控 agent，不是治理它。 |
 | NeMo Guardrails / Guardrails AI / Langfuse / LangSmith / Helicone | 内容护栏 / SDK / 代理 / SaaS | 结构上无法拦截本地 CLI 的工具调用：代理只见模型 HTTP 流量，内容校验器只见文本，可观测平台是事后分析。 |
 
-**结论：** 监控已商品化、安全 hooks 已拥挤、编排已有人做——本地 coding CLI 的行为级、语义化、运行中执行层是没人交付的那一层。kimi-guard 的护城河是组合而非单点：hook/Wire 接入点 × 语义检测器 × 订阅感知的预算模型。主要战略风险是单 runtime 绑定；分析器核心是纯函数（[PORTING.md](docs/PORTING.md)），正是为了让适配器能拓宽它。
+**结论：** 监控已商品化、安全 hooks 已拥挤、编排已有人做——本地 coding CLI 的行为级、语义化、运行中执行层是没人交付的那一层。agent-guard 的护城河是组合而非单点：hook/Wire 接入点 × 语义检测器 × 订阅感知的预算模型。已跑通双 harness（Kimi Code + Claude Code）；分析器核心是纯函数（[PORTING.md](docs/PORTING.md)），正是为了让适配器能拓宽它。
 
 ## 兼容性
 

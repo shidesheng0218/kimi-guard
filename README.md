@@ -34,13 +34,13 @@ Kimi Code CLI is a great open-source coding agent, but its subagent system has k
 - All subagents share **one API key**, so a burst of parallel dispatches exhausts TPM/RPM and everything hangs.
 - A mid-batch quota error leaves **half-written workspaces** that poison the whole run.
 
-kimi-guard is a local, zero-daemon guard that sits on the CLI's official [hooks system](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html) and enforces hard caps — no source forking, no proxy, no account access.
+agent-guard is a local, zero-daemon guard that sits on the CLI's official [hooks system](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html) and enforces hard caps — no source forking, no proxy, no account access.
 
 Since v0.8 the same engine also guards **Claude Code** via its [hooks system](https://code.claude.com/docs/en/hooks) (`agentguard install` auto-detects installed harnesses). Wire-mode supervision (`agentguard run`), mid-turn steering and official-API quota metering remain Kimi-exclusive; loop/churn/explore detection, quota gates, the completion gate, kill switch and checkpoints work on both.
 
 ## Features
 
-kimi-guard is not a preset pack — it is a **runtime behavior analysis and enforcement engine**. Every tool call flows through a normalization layer, a set of pure analyzers, and a policy engine that maps findings to actions (observe / warn / block / full stop).
+agent-guard is not a preset pack — it is a **runtime behavior analysis and enforcement engine**. Every tool call flows through a normalization layer, a set of pure analyzers, and a policy engine that maps findings to actions (observe / warn / block / full stop).
 
 | Guard | Signal it detects | Action |
 |---|---|---|
@@ -62,7 +62,7 @@ kimi-guard is not a preset pack — it is a **runtime behavior analysis and enfo
 
 Warn-level findings are injected into the model's context (official hooks stdout mechanism) so the agent can correct itself *before* a block becomes necessary. Blocks feed a structured reason back to the model (official exit-code-2 mechanism).
 
-Everything is **fail-open**: if kimi-guard itself errors, the agent keeps working. It is a safety net, not a single point of failure.
+Everything is **fail-open**: if agent-guard itself errors, the agent keeps working. It is a safety net, not a single point of failure.
 
 ## Install
 
@@ -263,7 +263,7 @@ flowchart LR
     subgraph KIMI["Kimi Code CLI"]
         A["tool call"] -->|"hook event / Wire msg"| B
     end
-    subgraph GUARD["kimi-guard"]
+    subgraph GUARD["agent-guard"]
         B["Normalization layer<br/>schema-variant tolerant<br/>+ output hashing"] --> C["Analyzers (pure functions)<br/>repeat · cycle · no-gain · churn<br/>no-progress · near-repeat · explore"]
         M["Budget engine<br/>5h/weekly windows<br/>burn-rate projection"] --> C
         C --> D["Policy engine<br/>findings → action<br/>+ kill switch"]
@@ -279,7 +279,7 @@ The completion gate adds a claim-vs-evidence loop on top:
 ```mermaid
 sequenceDiagram
     participant A as Agent
-    participant G as kimi-guard
+    participant G as agent-guard
     participant DB as local evidence (state.db)
     A->>A: runs tools (Shell, edits...)
     A->>G: turn ends, claims "all tests pass"
@@ -328,17 +328,17 @@ Kimi Code CLI ──hook event──▶ kguard hook <event> (JSON on stdin)
 
 ## Ecosystem fit
 
-The agent-runtime tooling space is crowded, and pretending every tool competes with every other one helps nobody. kimi-guard occupies one specific layer — here is the honest map:
+The agent-runtime tooling space is crowded, and pretending every tool competes with every other one helps nobody. agent-guard occupies one specific layer — here is the honest map:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  your agent (Kimi Code CLI)                                    │
+│  your agent (Kimi Code CLI · Claude Code)                      │
 │                                                                │
 │  built-in loop_control      step/attempt caps + compaction     │
 │  ├─ mechanical counter — stops the loop, explains nothing       │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  kimi-guard (this project) — the enforcement layer       │  │
+│  │  agent-guard (this project) — the enforcement layer      │  │
 │  │  semantic loop detection · quota gates · steering ·      │  │
 │  │  checkpoints · goal anchoring — the agent cannot bypass  │  │
 │  └──────────────────────────────────────────────────────────┘  │
@@ -350,7 +350,7 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 │  kimi-boost                  security preset installer         │
 │  ├─ dangerous-command guards, branch protection, skills       │
 │  ├─ WHAT the agent may do (security) — different axis from    │
-│  │  kimi-guard's HOW it behaves (runtime loops/budget)        │
+│  │  agent-guard's HOW it behaves (runtime loops/budget)       │
 │                                                                │
 │  cli-agent-runner            lifecycle supervisor              │
 │  ├─ 7×24 restart loops, log-level anomaly detection           │
@@ -363,24 +363,24 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 
 **Three lines of positioning:**
 
-1. **Monitors are plentiful, voluntary orchestrators exist — but a non-bypassable enforcement layer, kimi-guard is the first in the Kimi ecosystem.** (ccusage-family tools are read-only; kimi-session-orchestrator relies on the agent choosing to call it; kimi-guard intercepts.)
+1. **Monitors are plentiful, voluntary orchestrators exist — but a non-bypassable enforcement layer, agent-guard is the first in the Kimi ecosystem.** (ccusage-family tools are read-only; kimi-session-orchestrator relies on the agent choosing to call it; agent-guard intercepts.)
 2. **Mid-turn steering is an intervention outside the hook-lifecycle boundary — no verified analog does it: external supervisors (e.g. [loop-eng/loopguard](https://github.com/loop-eng/loopguard)) can only SIGSTOP-pause the process and post a desktop notification; in-process detector libraries ([LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster)) need the host app to honor them; security-hook suites (cc-safety-net) act pre-execution only. We do it natively over the official Wire protocol.**
 3. **The budget model understands Kimi's subscription semantics: 5h/weekly request windows, reserved headroom, burn-rate projection — USD-billing competitors don't reconcile against plan-based users.**
 
 **What we deliberately do NOT do** (so you know where to look):
 
 - Security scanning / destructive-command guards → use **kimi-boost** presets (different axis: authorization vs behavior). `kguard doctor` detects whether a security layer is present and points you there if not.
-- Completion verification exists in kimi-guard as a **deterministic claim-vs-evidence gate** (no LLM in the loop), with an *opt-in* single-vote LLM veto for false positives (`VETO: yes|no` protocol, per-session budget cap, fail-closed on any error). For richer semantic verification (refute-by-default judges, LLM grading), see kimi-session-orchestrator's `grade_step` or the refute-by-default pattern in multi-runtime governance suites.
+- Completion verification exists in agent-guard as a **deterministic claim-vs-evidence gate** (no LLM in the loop), with an *opt-in* single-vote LLM veto for false positives (`VETO: yes|no` protocol, per-session budget cap, fail-closed on any error). For richer semantic verification (refute-by-default judges, LLM grading), see kimi-session-orchestrator's `grade_step` or the refute-by-default pattern in multi-runtime governance suites.
 - Multi-runtime portability (Claude Code / Codex / Gemini) → by design, our leverage is Kimi's Wire protocol. The analyzer core (`src/analysis.ts`) is pure functions and reusable if you want to build adapters
 - Daemon-style process supervision (SIGSTOP/SIGCONT, systemd) → **cli-agent-runner** owns that layer; ours is semantic in-harness intervention
 
-Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). kimi-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
+Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
 
 ### The cross-ecosystem landscape (verified 2026-09)
 
 The behavioral-enforcement niche is not just empty in the Kimi ecosystem — a survey of the wider coding-agent tooling space found no shipped equivalent:
 
-| Tool | Mechanism | What it can/cannot do vs kimi-guard |
+| Tool | Mechanism | What it can/cannot do vs agent-guard |
 |---|---|---|
 | [cc-safety-net](https://github.com/kenryu42/cc-safety-net) (1.5k★, 13 CLIs incl. Kimi Code) | pre-execution hooks | Blocks dangerous commands/secret access — the authorization axis. No loop detection, no quotas, no steering. Proves multi-runtime hooks appetite. |
 | [ccusage](https://github.com/ccusage/ccusage) (18k★) | log analytics | Read-only cost/token reports over 18 agent CLIs. Never blocks. The usage-data layer is commoditized; enforcement is the open layer. |
@@ -390,7 +390,7 @@ The behavioral-enforcement niche is not just empty in the Kimi ecosystem — a s
 | [ralph](https://github.com/frankbria/ralph-claude-code) (9.6k★) | shell wrapper loop | Exit gates and rate limits at iteration boundaries only — works around runaway agents by restarting, doesn't govern them. |
 | NeMo Guardrails / Guardrails AI / Langfuse / LangSmith / Helicone | content rails / SDK / proxy / SaaS | Structurally cannot intercept a local CLI's tool calls: proxies see only model HTTP traffic, content validators see text, observability is after-the-fact. |
 
-**The takeaway:** monitors are commoditized, security hooks are crowded, orchestration is well-served — behavioral, semantic, mid-run enforcement of a local coding CLI is the layer nobody ships. kimi-guard's moat is the combination, not any single feature: hook/Wire access point × semantic detectors × subscription-aware budgeting. The main strategic risk is single-runtime binding; the analyzer core is pure functions ([PORTING.md](docs/PORTING.md)) precisely so adapters can widen it.
+**The takeaway:** monitors are commoditized, security hooks are crowded, orchestration is well-served — behavioral, semantic, mid-run enforcement of a local coding CLI is the layer nobody else ships. agent-guard's moat is the combination, not any single feature: hook/Wire access point × semantic detectors × subscription-aware budgeting — now running on two harnesses (Kimi Code + Claude Code), with the pure-function analyzer core ([PORTING.md](docs/PORTING.md)) ready for more.
 
 ## Compatibility
 
