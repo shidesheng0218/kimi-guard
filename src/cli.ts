@@ -265,10 +265,11 @@ cfgCmd
 
 program
   .command("run")
-  .description("supervised headless run: spawns the agent in Wire mode, enforces loop guards, meters tokens, auto-checkpoints")
+  .description("supervised headless run: loop guards, token metering, auto-checkpoints. Kimi: Wire protocol (in-process steer); Claude Code: claude -p stream-json supervision")
   .argument("[prompt...]", "task prompt (or use --prompt)")
   .option("-p, --prompt <text>", "task prompt")
-  .option("-e, --exec <command...>", "agent command to supervise (default: kimi --wire)")
+  .option("-e, --exec <command...>", "agent command to supervise (default: kimi --wire / claude)")
+  .option("--harness <name>", "kimi | claude (default: kimi; claude uses claude -p stream-json)")
   .option("--max-steps <n>", "hard step cap (per turn)", "200")
   .option("--max-minutes <n>", "hard wall-clock cap for the whole run", "30")
   .option("--auto-resume <n>", "re-prompt with checkpoint brief after max_steps/kill-switch", "0")
@@ -278,13 +279,30 @@ program
   .option("--yolo", "auto-approve every approval request")
   .option("--json", "print machine-readable report JSON")
   .action(async (promptParts: string[], opts: {
-    prompt?: string; exec?: string[]; maxSteps: string; maxMinutes: string;
+    prompt?: string; exec?: string[]; harness?: string; maxSteps: string; maxMinutes: string;
     autoResume: string; maxVerifyRounds: string; steer: boolean; maxSteers: string; yolo?: boolean; json?: boolean;
   }) => {
     const prompt = opts.prompt ?? promptParts.join(" ");
     if (!prompt.trim()) {
       console.error("error: a prompt is required (argument or --prompt)");
       process.exit(1);
+    }
+    if (opts.harness === "claude") {
+      const { runClaudeSupervised } = await import("./run/claude.js");
+      const report = await runClaudeSupervised({
+        prompt,
+        command: opts.exec ?? ["claude"],
+        maxSteps: Number(opts.maxSteps),
+        maxMinutes: Number(opts.maxMinutes),
+        autoResume: Number(opts.autoResume),
+        maxVerifyRounds: Number(opts.maxVerifyRounds),
+        approval: opts.yolo ? "approve" : "reject",
+        json: Boolean(opts.json),
+      });
+      if (opts.json) console.log(JSON.stringify(report, null, 2));
+      else console.log(formatReport(report));
+      process.exitCode = report.endReason === "finished" ? 0 : 2;
+      return;
     }
     const report = await runSupervised({
       prompt,
