@@ -9,7 +9,7 @@ import type { HarnessName } from "./toolsets.js";
  * (plain stdout is only context on a few events there).
  */
 export function encodeHint(event: string, harness: HarnessName, text: string): string {
-  if (harness === "claude") {
+  if (harness !== "kimi") {
     return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } });
   }
   return text;

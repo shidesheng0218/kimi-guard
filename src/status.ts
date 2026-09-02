@@ -2,9 +2,10 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import pc from "picocolors";
 import { loadConfig } from "./config.js";
-import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath, claudeDetected, claudeSettingsPath } from "./paths.js";
+import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath, claudeDetected, claudeSettingsPath, codexDetected, codexHooksPath } from "./paths.js";
 import { hooksInstalled } from "./installer.js";
 import { claudeHooksInstalled } from "./harness/claude.js";
+import { codexHooksInstalled } from "./harness/codex.js";
 import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, type BlockKindStat } from "./store.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
@@ -96,7 +97,7 @@ function agentProcessRunning(): boolean {
     return r.stdout.split("\n").some((line) => {
       const l = line.trim();
       if (l.includes("agentguard") || l.includes("kimi-guard") || l.includes("kguard")) return false;
-      return /(?:^|[/\s])(kimi|claude)(?:\s|$)/.test(l);
+      return /(?:^|[/\s])(kimi|claude|codex)(?:\s|$)/.test(l);
     });
   } catch {
     return false;
@@ -183,7 +184,8 @@ export function cmdDoctor(): number {
 
   const kimi = detectKimiConfig();
   const hasClaude = claudeDetected();
-  if (kimi.exists || !hasClaude) {
+  const hasCodex = codexDetected();
+  if (kimi.exists || (!hasClaude && !hasCodex)) {
     check(
       kimi.exists,
       `kimi config found: ${kimi.path}`,
@@ -204,6 +206,16 @@ export function cmdDoctor(): number {
     );
   } else {
     console.log(`  ${pc.dim("-")} claude code not detected (skipped)`);
+  }
+
+  if (codexDetected()) {
+    check(
+      codexHooksInstalled(),
+      `[codex] hooks present in ${codexHooksPath()}`,
+      `[codex] hooks not installed — run: agentguard install --harness codex`,
+    );
+  } else {
+    console.log(`  ${pc.dim("-")} codex not detected (skipped)`);
   }
 
   const kimiConfigText = fs.existsSync(kimi.path) ? fs.readFileSync(kimi.path, "utf8") : "";

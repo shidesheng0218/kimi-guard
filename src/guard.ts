@@ -80,8 +80,8 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
     case "PostToolUseFailure":
       return handlePostTool(event, cfg, payload, sessionId, now);
     case "Stop": {
-      // Claude Code has no TurnStarted event; one Stop ≈ one completed turn ≈ 1+ requests
-      if (cfg.harness === "claude") recordEvent(sessionId, "turn", { origin: "stop" }, now);
+      // Claude Code and Codex have no TurnStarted event; one Stop ≈ one completed turn ≈ 1+ requests
+      if (cfg.harness !== "kimi") recordEvent(sessionId, "turn", { origin: "stop" }, now);
       if (!cfg.verify.enabled || !cfg.verify.blockOnNoEvidence) return { code: 0 };
       if (!hasRecentEdits(sessionId, cfg, now)) return { code: 0 };
       if (hasEvidence(sessionId, cfg, now)) return { code: 0 };

@@ -290,6 +290,14 @@ function applyClaudeDefaults(cfg: GuardConfig): void {
   cfg.budget.dispatchTools = ["Task"];
 }
 
+/** Codex CLI defaults. apply_patch is the edit tool; spawn_agent matches "Agent". */
+function applyCodexDefaults(cfg: GuardConfig): void {
+  cfg.tools = toolDefaultsFor("codex");
+  cfg.repeat.watch = ["Bash", "apply_patch"];
+  cfg.repeat.thresholds = {};
+  cfg.budget.dispatchTools = ["Agent", "spawn_agent"];
+}
+
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
@@ -311,6 +319,7 @@ export function loadConfig(configPath = userConfigPath(), harness: HarnessName =
   const cfg: GuardConfig = structuredClone(defaultConfig);
   cfg.harness = harness;
   if (harness === "claude") applyClaudeDefaults(cfg);
+  if (harness === "codex") applyCodexDefaults(cfg);
   let raw: string;
   try {
     raw = fs.readFileSync(configPath, "utf8");

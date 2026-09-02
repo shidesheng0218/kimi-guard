@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { installClaudeHooks, uninstallClaudeHooks, claudeHooksInstalled, CLAUDE_COMMAND_MARKER } from "../src/harness/claude.js";
+import { installCodexHooks, uninstallCodexHooks, codexHooksInstalled, CODEX_COMMAND_MARKER } from "../src/harness/codex.js";
 import { loadConfig } from "../src/config.js";
 import { encodeHint } from "../src/hook.js";
 import { guardHome } from "../src/paths.js";
@@ -15,12 +16,14 @@ beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kguard-harness-"));
   process.env.KIMI_GUARD_HOME = tmp;
   process.env.CLAUDE_SETTINGS_PATH = path.join(tmp, "claude", "settings.json");
+  process.env.CODEX_HOOKS_PATH = path.join(tmp, "codex", "hooks.json");
 });
 
 afterEach(() => {
   resetDbForTests();
   delete process.env.KIMI_GUARD_HOME;
   delete process.env.CLAUDE_SETTINGS_PATH;
+  delete process.env.CODEX_HOOKS_PATH;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -68,6 +71,44 @@ describe("claude settings.json installer", () => {
     const r = installClaudeHooks();
     expect(claudeHooksInstalled()).toBe(true);
     expect(r.backupPath).toBeDefined();
+  });
+});
+
+describe("codex hooks.json installer", () => {
+  it("creates hooks.json with codex event names and marker", () => {
+    const r = installCodexHooks();
+    expect(r.created).toBe(true);
+    const file = JSON.parse(fs.readFileSync(r.configPath, "utf8")) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    expect(Object.keys(file.hooks)).toContain("PreToolUse");
+    expect(Object.keys(file.hooks)).toContain("Interrupt");
+    expect(Object.keys(file.hooks)).not.toContain("PostToolUseFailure"); // codex has no such event
+    expect(file.hooks["PreToolUse"]![0]!.hooks[0]!.command).toContain("--harness codex");
+    expect(codexHooksInstalled()).toBe(true);
+  });
+
+  it("is idempotent and uninstall removes only our entries", () => {
+    fs.mkdirSync(path.dirname(process.env.CODEX_HOOKS_PATH!), { recursive: true });
+    fs.writeFileSync(process.env.CODEX_HOOKS_PATH!, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "^Bash$", hooks: [{ type: "command", command: "other hook" }] }] } }));
+    installCodexHooks();
+    installCodexHooks();
+    let file = JSON.parse(fs.readFileSync(process.env.CODEX_HOOKS_PATH!, "utf8")) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    expect(file.hooks["PreToolUse"]!.filter((g) => g.hooks.some((h) => h.command.includes(CODEX_COMMAND_MARKER)))).toHaveLength(1);
+    const r = uninstallCodexHooks();
+    expect(r.removed).toBe(true);
+    expect(codexHooksInstalled()).toBe(false);
+    file = JSON.parse(fs.readFileSync(process.env.CODEX_HOOKS_PATH!, "utf8")) as typeof file;
+    expect(file.hooks["PreToolUse"]).toHaveLength(1);
+  });
+});
+
+describe("codex config defaults", () => {
+  it("codex harness uses apply_patch/Bash, empty read/search classifiers", () => {
+    const c = loadConfig(path.join(tmp, "nonexistent.toml"), "codex");
+    expect(c.harness).toBe("codex");
+    expect(c.tools.shell).toEqual(["Bash"]);
+    expect(c.tools.edit).toEqual(["apply_patch", "Edit", "Write"]);
+    expect(c.tools.read).toEqual([]);
+    expect(c.budget.dispatchTools).toContain("spawn_agent");
   });
 });
 

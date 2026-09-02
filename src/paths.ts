@@ -24,6 +24,18 @@ export function claudeDetected(): boolean {
   return fs.existsSync(claudeSettingsPath()) || fs.existsSync(path.join(os.homedir(), ".claude"));
 }
 
+/** Codex CLI hooks file. */
+export function codexHooksPath(): string {
+  const env = process.env.CODEX_HOOKS_PATH;
+  if (env && env.trim()) return path.resolve(env);
+  return path.join(os.homedir(), ".codex", "hooks.json");
+}
+
+/** Is Codex CLI present on this machine? */
+export function codexDetected(): boolean {
+  return fs.existsSync(path.join(os.homedir(), ".codex"));
+}
+
 export function stateDbPath(): string {
   return path.join(guardHome(), "state.db");
 }

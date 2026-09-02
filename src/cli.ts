@@ -4,7 +4,8 @@ import { version } from "./version.js";
 import { loadConfig, writeConfigTemplate } from "./config.js";
 import { installHooks, uninstallHooks } from "./installer.js";
 import { installClaudeHooks, uninstallClaudeHooks } from "./harness/claude.js";
-import { claudeDetected } from "./paths.js";
+import { installCodexHooks, uninstallCodexHooks } from "./harness/codex.js";
+import { claudeDetected, codexDetected } from "./paths.js";
 import { runHook } from "./hook.js";
 import type { HarnessName } from "./toolsets.js";
 import { setMeta, listBlocks, setBlockFeedback } from "./store.js";
@@ -26,16 +27,18 @@ program
   .command("install")
   .description("install hook rules into detected agent CLIs (Kimi Code config.toml and/or Claude Code settings.json)")
   .option("--compat", "legacy-safe mode: only the 3 universally supported hook events (for older kimi-cli versions)")
-  .option("--harness <name>", "kimi | claude | all (default: auto-detect installed harnesses, fallback kimi)")
+  .option("--harness <name>", "kimi | claude | codex | all (default: auto-detect installed harnesses, fallback kimi)")
   .action((opts: { compat?: boolean; harness?: string }) => {
     const which = opts.harness ?? "auto";
-    const doKimi = which === "kimi" || which === "all" || which === "auto";
-    const doClaude = which === "claude" || which === "all" || (which === "auto" && claudeDetected());
-    if (!doKimi && !doClaude) {
+    const known = ["kimi", "claude", "codex", "all", "auto"];
+    if (!known.includes(which)) {
       console.error(`unknown harness: ${which}`);
       process.exitCode = 1;
       return;
     }
+    const doKimi = which === "kimi" || which === "all" || which === "auto";
+    const doClaude = which === "claude" || which === "all" || (which === "auto" && claudeDetected());
+    const doCodex = which === "codex" || which === "all" || (which === "auto" && codexDetected());
 
     if (doKimi) {
       const r = installHooks("agentguard", Boolean(opts.compat));
@@ -52,13 +55,20 @@ program
       if (r.backupPath) console.log(`✓ [claude] backup: ${r.backupPath}`);
       console.log(`✓ [claude] hooks ${r.updated ? "installed" : "already up to date"}${opts.compat ? " (compat)" : ""}`);
     }
+    if (doCodex) {
+      const r = installCodexHooks("agentguard", Boolean(opts.compat));
+      console.log(`✓ [codex] config: ${r.configPath}${r.created ? " (created)" : ""}`);
+      if (r.backupPath) console.log(`✓ [codex] backup: ${r.backupPath}`);
+      console.log(`✓ [codex] hooks ${r.updated ? "installed" : "already up to date"}${opts.compat ? " (compat)" : ""}`);
+      console.log("  note: Codex hooks cover shell/apply_patch/local function tools; hosted tools (e.g. WebSearch) are not observable.");
+    }
     console.log("  restart the agent CLI (or /reload) to take effect.");
   });
 
 program
   .command("uninstall")
   .description("remove the managed hook entries from Kimi Code config.toml and Claude Code settings.json")
-  .option("--harness <name>", "kimi | claude | all (default: all)")
+  .option("--harness <name>", "kimi | claude | codex | all (default: all)")
   .action((opts: { harness?: string }) => {
     const which = opts.harness ?? "all";
     if (which === "kimi" || which === "all") {
@@ -69,15 +79,19 @@ program
       const r = uninstallClaudeHooks();
       console.log(r.removed ? `✓ [claude] removed hooks from ${r.configPath}` : `[claude] no managed hooks found in ${r.configPath}`);
     }
+    if (which === "codex" || which === "all") {
+      const r = uninstallCodexHooks();
+      console.log(r.removed ? `✓ [codex] removed hooks from ${r.configPath}` : `[codex] no managed hooks found in ${r.configPath}`);
+    }
   });
 
 program
   .command("hook")
   .argument("<event>", "hook event name, e.g. PreToolUse")
   .description("hook entrypoint invoked by the agent CLI (reads JSON payload from stdin)")
-  .option("--harness <name>", "kimi | claude (default: kimi)", "kimi")
+  .option("--harness <name>", "kimi | claude | codex (default: kimi)", "kimi")
   .action(async (event: string, opts: { harness: string }) => {
-    const harness: HarnessName = opts.harness === "claude" ? "claude" : "kimi";
+    const harness: HarnessName = opts.harness === "claude" ? "claude" : opts.harness === "codex" ? "codex" : "kimi";
     process.exitCode = await runHook(event, harness);
   });
 
