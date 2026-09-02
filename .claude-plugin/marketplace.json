@@ -1,0 +1,18 @@
+{
+  "name": "agentguard",
+  "owner": {
+    "name": "Mike Shi",
+    "url": "https://github.com/shidesheng0218"
+  },
+  "plugins": [
+    {
+      "name": "agent-guard",
+      "source": "./claude-plugin",
+      "description": "Runtime behavior guard for Claude Code: loop detection, quota gates, completion gate, checkpoints. Requires the CLI (npm i -g agentguard) — hooks fail-open without it.",
+      "version": "0.8.0",
+      "author": {
+        "name": "Mike Shi"
+      }
+    }
+  ]
+}

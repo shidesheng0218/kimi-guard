@@ -75,6 +75,15 @@ agentguard doctor     # verify
 
 Requires Node >= 22.13. Restart the agent CLI (or `/reload`) after installing.
 
+Claude Code users can also install via the plugin channel (this repo is a self-hosted marketplace):
+
+```
+/plugin marketplace add shidesheng0218/kimi-guard
+/plugin install agent-guard@agentguard
+```
+
+(The plugin's hooks call the `agentguard` CLI — install it globally first; without it the hooks fail-open.)
+
 ### Harness support
 
 | Capability | Kimi Code CLI | Claude Code |

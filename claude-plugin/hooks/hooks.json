@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook PreToolUse --harness claude", "timeout": 5 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook PostToolUse --harness claude", "timeout": 5 }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook PostToolUseFailure --harness claude", "timeout": 5 }] }
+    ],
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook UserPromptSubmit --harness claude", "timeout": 5 }] }
+    ],
+    "Stop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook Stop --harness claude", "timeout": 5 }] }
+    ],
+    "SubagentStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook SubagentStart --harness claude", "timeout": 5 }] }
+    ],
+    "SessionStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook SessionStart --harness claude", "timeout": 5 }] }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook SessionEnd --harness claude", "timeout": 5 }] }
+    ],
+    "PreCompact": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook PreCompact --harness claude", "timeout": 5 }] }
+    ],
+    "PostCompact": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook PostCompact --harness claude", "timeout": 5 }] }
+    ],
+    "StopFailure": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "agentguard hook StopFailure --harness claude", "timeout": 5 }] }
+    ]
+  }
+}
