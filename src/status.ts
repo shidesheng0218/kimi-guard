@@ -175,7 +175,7 @@ export function cmdDoctor(): number {
     fs.accessSync(guardHome(), fs.constants.W_OK);
     check(true, `state dir writable: ${guardHome()}`, "");
     openDb().prepare("SELECT 1").get();
-    check(true, `state db opens (schema v2): ${stateDbPath()}`, "");
+    check(true, `state db opens: ${stateDbPath()}`, "");
   } catch (err) {
     check(false, "", `state dir/db problem: ${(err as Error).message}`);
   }
