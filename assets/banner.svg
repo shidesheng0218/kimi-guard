@@ -19,7 +19,7 @@
   </g>
 
   <text x="160" y="112" font-size="54" font-weight="800" fill="#e6edf3">agent-guard</text>
-  <text x="162" y="152" font-size="19" fill="#8b949e">A runtime behavior guard for Kimi Code & Claude Code —</text>
+  <text x="162" y="152" font-size="19" fill="#8b949e">Runtime behavior guard for Kimi Code · Claude Code · Codex —</text>
   <text x="162" y="178" font-size="19" fill="#8b949e">stop runaway agent loops before they burn your quota.</text>
 
   <g font-size="15" fill="#c9d1d9">

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — 2026-09-02
+
+- 🎮 **Claude Code headless supervision**: `agentguard run --harness claude` spawns `claude -p --output-format stream-json` and supervises the event stream — same analyzers and shared state db (installed hooks do the real-time blocking; the driver watches the same block records), hard caps via `--max-turns` + wall clock, kill switch backstop (SIGINT→SIGKILL) when hooks aren't installed, verify rounds and auto-resume via `--resume <session_id>`, exact token metering from `result.usage`.
+- 📉 **Fuzzy no-gain detection**: near-identical (not byte-identical) outputs across different args now count — trigram Jaccard similarity (≥0.85) over 1KB output samples catches "the page moved one line" spinning that exact-hash noGain missed. Config: `[noGain] fuzzySimilarity / fuzzyWarnAt (4) / fuzzyBlockAt (6)`.
+- 🟠 **Codex CLI adapter** (third harness): hooks installed into `~/.codex/hooks.json` (`agentguard install` auto-detects; `--harness codex` to force). Codex covers shell, `apply_patch`, MCP and local function tools — hosted tools (e.g. WebSearch) are not observable (documented limitation). Same payload contract (`session_id`/`tool_name`/`tool_input`), same exit-2 blocking, `additionalContext` hints.
+- 🗃️ Schema v4: `calls.output_sample` (1KB normalized samples for similarity matching) — additive migration, history preserved.
+- 🩺 doctor now checks all three harnesses independently; process-liveness detection covers kimi/claude/codex.
+
 ## 0.8.1 — 2026-09-02
 
 - 📦 **Published as scoped `@shidesheng0218/agentguard`** (npm squat protection blocks the bare `agentguard` name; the CLI binary is still `agentguard`).

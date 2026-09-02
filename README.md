@@ -2,7 +2,7 @@
 
 # 🛡️ agent-guard (formerly kimi-guard)
 
-**A runtime behavior guard for coding agents — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) and [Claude Code](https://code.claude.com) — stop runaway agent loops before they burn your quota.**
+**A runtime behavior guard for coding agents — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code), [Claude Code](https://code.claude.com) and [Codex CLI](https://github.com/openai/codex) — stop runaway agent loops before they burn your quota.**
 
 `npm i -g @shidesheng0218/agentguard && agentguard install` → done. (Existing users: your installed `kimi-guard` keeps working — its `kguard` bin and hook entries stay live.)
 
@@ -46,7 +46,7 @@ agent-guard is not a preset pack — it is a **runtime behavior analysis and enf
 |---|---|---|
 | 🔁 **Repetition** | same `(tool, args)` signature re-run N times (whitespace-tolerant fingerprinting) | block |
 | 🔄 **Cycle detection** | oscillating loops: `A→B→A→B…` up to period-3, regardless of tool | block |
-| 📉 **No-information-gain** | different arguments, byte-identical output — the model is spinning without new data (the real root cause of upstream [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142) Case B) | warn → block |
+| 📉 **No-information-gain** | different arguments, byte-identical output — the model is spinning without new data (the real root cause of upstream [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142) Case B). Fuzzy variant catches near-identical outputs (trigram similarity) | warn → block |
 | ✏️ **Edit churn** | the same file edited over and over without converging ("thrashing") | warn → block |
 | 🐢 **No-progress stretch** | long run of tool calls with no successful edit landing — motion without progress | warn → block |
 | 🔭 **Exploration drift** | long streak of read/search calls with no action in between — exploring without implementing | warn → block |
@@ -86,13 +86,14 @@ Claude Code users can also install via the plugin channel (this repo is a self-h
 
 ### Harness support
 
-| Capability | Kimi Code CLI | Claude Code |
-|---|---|---|
-| Loop / churn / explore detection, kill switch | ✅ hooks | ✅ hooks |
-| Quota gates | ✅ event-based + official-API precise (`[budget] precise`) | ✅ event-based estimates |
-| Completion gate (claim vs evidence) | ✅ | ✅ |
-| Checkpoints / resume, feedback loop, reports | ✅ | ✅ |
-| `agentguard run` Wire supervision, mid-turn steer | ✅ | — (hooks only) |
+| Capability | Kimi Code CLI | Claude Code | Codex CLI |
+|---|---|---|---|
+| Loop / churn / explore detection, kill switch | ✅ hooks | ✅ hooks | ✅ hooks (shell + `apply_patch`; hosted tools like WebSearch are not observable) |
+| Quota gates | ✅ event-based + official-API precise (`[budget] precise`) | ✅ event-based estimates | ✅ event-based estimates |
+| Completion gate (claim vs evidence) | ✅ | ✅ | ✅ |
+| Checkpoints / resume, feedback loop, reports | ✅ | ✅ | ✅ |
+| `agentguard run` supervised headless runs | ✅ Wire protocol | ✅ stream-json supervision | — |
+| Mid-turn steer, exact per-step token metering | ✅ | — | — |
 
 <details>
 <summary>What <code>agentguard install</code> writes</summary>
@@ -161,17 +162,20 @@ kguard config init|show|get <key> # manage ~/.kimi-guard/config.toml
 kguard hook <event>     # (used by the CLI, reads JSON from stdin)
 ```
 
-### `kguard run` — supervised headless runs
+### `agentguard run` — supervised headless runs
 
 This is the tool for CI, cron jobs and unattended agents — the exact scenario where a
 repeating tool call burns the full timeout (upstream issue #2142 was a headless run).
 
 ```sh
-kguard run "refactor the auth module and make tests pass" \
+agentguard run "refactor the auth module and make tests pass" \
   --max-steps 100 --max-minutes 20 --auto-resume 1 --json
+
+# Claude Code headless supervision (stream-json driver):
+agentguard run "migrate the test suite to vitest" --harness claude --max-steps 50
 ```
 
-What the supervisor does in-process (no shell hooks, no exit codes):
+What the supervisor does (Kimi, Wire protocol — in-process, no exit codes):
 
 - subscribes to `PreToolUse` over the Wire protocol and returns `allow/block` decisions — the same analyzers, zero-latency
 - **steers** the agent mid-turn (`steer`) when a warn-level pattern appears, before a hard block is needed
@@ -180,8 +184,14 @@ What the supervisor does in-process (no shell hooks, no exit codes):
 - enforces hard caps: `--max-steps` (cancel via official `cancel` method), `--max-minutes`
 - **kill switch**: after N blocks it cancels the turn and checkpoints
 - approval policy: default rejects with feedback (headless-safe), `--yolo` approves
-- writes a run report (`report.json`) + raw wire log (`wire.jsonl`) under `~/.kimi-guard/runs/`
+- writes a run report (`report.json`) + raw wire log (`wire.jsonl`) under `~/.agent-guard/runs/`
 - exit code 0 on clean finish, 2 on any intervention-triggered end — CI-friendly
+
+The Claude driver (`--harness claude`) spawns `claude -p --output-format stream-json` and supervises the
+event stream: same analyzers and state db (shared with the installed hooks, which do the actual blocking),
+hard caps via `--max-turns` + wall clock, kill switch (SIGINT → SIGKILL), verify rounds and auto-resume
+via `--resume`, exact token metering from `result.usage`. Mid-turn steer is not available (the stream is
+read-only) — blocks still reach the model through the installed hooks in real time.
 
 ## Configuration
 
@@ -371,7 +381,7 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 
 - Security scanning / destructive-command guards → use **kimi-boost** presets (different axis: authorization vs behavior). `kguard doctor` detects whether a security layer is present and points you there if not.
 - Completion verification exists in agent-guard as a **deterministic claim-vs-evidence gate** (no LLM in the loop), with an *opt-in* single-vote LLM veto for false positives (`VETO: yes|no` protocol, per-session budget cap, fail-closed on any error). For richer semantic verification (refute-by-default judges, LLM grading), see kimi-session-orchestrator's `grade_step` or the refute-by-default pattern in multi-runtime governance suites.
-- Multi-runtime portability (Claude Code / Codex / Gemini) → by design, our leverage is Kimi's Wire protocol. The analyzer core (`src/analysis.ts`) is pure functions and reusable if you want to build adapters
+- Multi-runtime portability: ✅ shipped for Claude Code (v0.8) and Codex CLI (v0.9) — see the harness matrix. Next adapters (Gemini etc.) reuse the pure-function analyzer core ([PORTING.md](docs/PORTING.md))
 - Daemon-style process supervision (SIGSTOP/SIGCONT, systemd) → **cli-agent-runner** owns that layer; ours is semantic in-harness intervention
 
 Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
