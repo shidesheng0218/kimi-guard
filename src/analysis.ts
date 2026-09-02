@@ -196,7 +196,7 @@ export function editToolSet(cfg: GuardConfig): Set<string> {
 }
 
 /**
- * No-progress stretch (histori-style D3): a run of tool calls with no
+ * No-progress stretch: a run of tool calls with no
  * successful edit landing — the agent is doing motion, not progress.
  * If the proposed call itself is an edit, we stay silent and let the edit
  * break the streak.

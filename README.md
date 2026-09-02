@@ -310,7 +310,7 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 **Three lines of positioning:**
 
 1. **Monitors are plentiful, voluntary orchestrators exist — but a non-bypassable enforcement layer, kimi-guard is the first in the Kimi ecosystem.** (ccusage-family tools are read-only; kimi-session-orchestrator relies on the agent choosing to call it; kimi-guard intercepts.)
-2. **Mid-turn steering is an intervention outside the hook-lifecycle boundary — direct analogs (histori, LoopGuard, multi-runtime governance suites) cannot do it or only brute-force-pause the process. We do it natively over the official Wire protocol.**
+2. **Mid-turn steering is an intervention outside the hook-lifecycle boundary — no verified analog does it: external supervisors (e.g. [loop-eng/loopguard](https://github.com/loop-eng/loopguard)) can only SIGSTOP-pause the process and post a desktop notification; in-process detector libraries ([LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster)) need the host app to honor them; security-hook suites (cc-safety-net) act pre-execution only. We do it natively over the official Wire protocol.**
 3. **The budget model understands Kimi's subscription semantics: 5h/weekly request windows, reserved headroom, burn-rate projection — USD-billing competitors don't reconcile against plan-based users.**
 
 **What we deliberately do NOT do** (so you know where to look):
@@ -320,7 +320,23 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 - Multi-runtime portability (Claude Code / Codex / Gemini) → by design, our leverage is Kimi's Wire protocol. The analyzer core (`src/analysis.ts`) is pure functions and reusable if you want to build adapters
 - Daemon-style process supervision (SIGSTOP/SIGCONT, systemd) → **cli-agent-runner** owns that layer; ours is semantic in-harness intervention
 
-Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting).
+Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). kimi-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
+
+### The cross-ecosystem landscape (verified 2026-09)
+
+The behavioral-enforcement niche is not just empty in the Kimi ecosystem — a survey of the wider coding-agent tooling space found no shipped equivalent:
+
+| Tool | Mechanism | What it can/cannot do vs kimi-guard |
+|---|---|---|
+| [cc-safety-net](https://github.com/kenryu42/cc-safety-net) (1.5k★, 13 CLIs incl. Kimi Code) | pre-execution hooks | Blocks dangerous commands/secret access — the authorization axis. No loop detection, no quotas, no steering. Proves multi-runtime hooks appetite. |
+| [ccusage](https://github.com/ccusage/ccusage) (18k★) | log analytics | Read-only cost/token reports over 18 agent CLIs. Never blocks. The usage-data layer is commoditized; enforcement is the open layer. |
+| [LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster) (83★) | in-process library | Detector set nearly identical to ours (fuzzy repeat / cycles / output stagnation) — but inside LangGraph/CrewAI apps, not CLIs. Independent convergent evidence the detector taxonomy is right. |
+| [loop-eng/loopguard](https://github.com/loop-eng/loopguard) (0★) | supervisor daemon (SIGSTOP) | Multi-runtime loop watching with $-caps, but freezes the process and posts a desktop notification — useless headless, no steering, no semantics. |
+| [claudewatch](https://github.com/blackwell-systems/claudewatch) (9★, stalled) | PostToolUse hooks + MCP | Closest prior art for hook-feedback steering ("you're looping, call get_blockers()") — Claude Code only, inactive since 2026-03. |
+| [ralph](https://github.com/frankbria/ralph-claude-code) (9.6k★) | shell wrapper loop | Exit gates and rate limits at iteration boundaries only — works around runaway agents by restarting, doesn't govern them. |
+| NeMo Guardrails / Guardrails AI / Langfuse / LangSmith / Helicone | content rails / SDK / proxy / SaaS | Structurally cannot intercept a local CLI's tool calls: proxies see only model HTTP traffic, content validators see text, observability is after-the-fact. |
+
+**The takeaway:** monitors are commoditized, security hooks are crowded, orchestration is well-served — behavioral, semantic, mid-run enforcement of a local coding CLI is the layer nobody ships. kimi-guard's moat is the combination, not any single feature: hook/Wire access point × semantic detectors × subscription-aware budgeting. The main strategic risk is single-runtime binding; the analyzer core is pure functions ([PORTING.md](docs/PORTING.md)) precisely so adapters can widen it.
 
 ## Compatibility
 

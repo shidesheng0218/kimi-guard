@@ -17,7 +17,7 @@ kimi-guard's loop/budget/checkpoint engines were designed so the **decision core
 
 1. **Event capture** — a way to observe tool calls (name + args + output + status + timestamp) and write them into `store.recordCall()`.
    - Claude Code: `PreToolUse`/`PostToolUse` hooks → the same payload shapes kimi-guard already normalizes (`tool_name`, `tool_input`, `tool_output`).
-   - Codex CLI: hooks cover shell commands; native file tools are NOT intercepted (documented limitation) — evidence-dependent detectors (churn, no-progress) degrade accordingly, exactly like histori's Codex notes.
+   - Codex CLI: hooks cover shell commands; native file tools are NOT intercepted (documented limitation) — evidence-dependent detectors (churn, no-progress) degrade accordingly. This is an inherent ceiling of any hooks-based adapter, not a kimi-guard gap.
 2. **Decision transport** — how a block reaches the harness.
    - Claude Code: `PreToolUse` hook, exit code 2 + stderr (identical semantics to Kimi's hooks).
    - Warn hints: Claude Code supports stdout context injection on hook success — same mechanism as kimi-guard.

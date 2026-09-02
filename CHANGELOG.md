@@ -8,6 +8,7 @@
 - 💓 **Guard liveness / schema-drift detection**: every hook event records `last_hook_ts`; payloads that fail normalization increment `normalize_misses`. `kguard status` shows last hook activity; `kguard doctor` warns on normalization misses and on "hooks installed but silent for 24h+ while a kimi process runs" — the guard can no longer die silently.
 - ⏱️ **Rolling budget windows**: `resetsInMs` is now anchored to the oldest event inside the window instead of epoch-aligned modulo arithmetic; burn-rate projection uses the corrected window. Also fixed: the 5h window undercounted subagent dispatches (it only counted the last hour's) — the dangerous direction for a guard.
 - 🛠️ **Configurable shell tool names**: `verify.shellTools` (default `["Shell", "Bash"]`) — evidence detection, veto context and checkpoint briefs no longer hardcode tool names, so an upstream tool rename can't silently disable the completion gate.
+- 📚 **Docs**: removed an unverifiable tool attribution ("histori") from detector naming; the cross-ecosystem landscape in both READMEs now cites only surveyed, verifiable projects.
 
 ## 0.6.0 — 2026-09-01
 
@@ -20,7 +21,7 @@
 
 ## 0.5.0
 
-- 🐢 **No-progress stretch detector** (histori-style D3): long run of calls with no successful edit landing (warn 15 / block 25). A proposed edit call is never blocked by this detector.
+- 🐢 **No-progress stretch detector**: long run of calls with no successful edit landing (warn 15 / block 25). A proposed edit call is never blocked by this detector.
 - 🎯 **Goal anchoring**: re-injects the original task every N prompts (hooks) / steps (Wire) and always after compaction.
 - 🧯 **Context-fill gate** (Wire): steers a wrap-up warning when `StatusUpdate.context_usage` crosses the threshold. `PreCompact` now auto-captures a checkpoint.
 

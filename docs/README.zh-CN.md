@@ -275,7 +275,7 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 **三句话定位：**
 
 1. **监控者很多，自愿的编排者也有——但不可绕过的执行层守护，Kimi 生态里只有 kimi-guard。**（ccusage 系只读；kimi-session-orchestrator 依赖 Agent 自觉调用；kimi-guard 是拦截。）
-2. **轮中纠偏是 hook 生命周期边界之外的干预——同类（histori、LoopGuard、多 runtime 治理套件）做不到，或只能暴力暂停进程。我们用官方 Wire 协议原生做到。**
+2. **轮中纠偏是 hook 生命周期边界之外的干预——经核实没有任何已发布产品做到：外部监督器（如 [loop-eng/loopguard](https://github.com/loop-eng/loopguard)）只能 SIGSTOP 暂停进程再弹桌面通知；进程内检测库（[LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster)）需要宿主应用自己执行决策；安全 hook 套件（cc-safety-net）只在执行前拦截。我们用官方 Wire 协议原生做到。**
 3. **预算模型理解 Kimi 订阅制：5h/周请求窗口、保留余量、燃烧率外推——按 USD 计费的竞品在套餐用户面前不对账。**
 
 **我们刻意不做的事**（方便你找对工具）：
@@ -285,7 +285,23 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 - 跨 runtime 可移植（Claude Code / Codex / Gemini）→ 设计使然，我们的杠杆就是 Kimi 的 Wire 协议。分析器核心（`src/analysis.ts`）是纯函数，想写适配器可以直接复用
 - 进程级监督（SIGSTOP/SIGCONT、systemd）→ **cli-agent-runner** 占据那一层；我们做的是 harness 内的语义干预
 
-值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。
+值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。kimi-guard 与 [kimi-boost](https://github.com/shidesheng0218/kimi-boost) 出自同一作者，按产品线设计成一对：boost 管授权轴，guard 管行为轴。
+
+### 跨生态竞品格局（2026-09 核实）
+
+行为执行层这个生态位不只是 Kimi 生态空缺——对更广的 coding agent 工具链做了一轮调研，没有找到已发布的等价物：
+
+| 工具 | 机制 | 与 kimi-guard 的对比 |
+|---|---|---|
+| [cc-safety-net](https://github.com/kenryu42/cc-safety-net)（1.5k★，13 个 CLI 含 Kimi Code） | 执行前 hooks | 拦危险命令/密钥访问——授权轴。无循环检测、无配额、无纠偏。证明了多 runtime hooks 的市场需求。 |
+| [ccusage](https://github.com/ccusage/ccusage)（18k★） | 日志分析 | 覆盖 18 个 agent CLI 的只读用量报表，从不拦截。用量数据层已经商品化，执行层才是空缺。 |
+| [LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster)（83★） | 进程内库 | 检测器集合与我们的几乎一一对应（模糊重复/循环/输出停滞）——但跑在 LangGraph/CrewAI 应用里，管不到 CLI。独立收敛的证据：检测器分类学是对的。 |
+| [loop-eng/loopguard](https://github.com/loop-eng/loopguard)（0★） | 监督守护进程（SIGSTOP) | 多 runtime 循环监视 + 美元上限，但只会冻结进程发桌面通知——无人值守场景没用，无纠偏、无语义。 |
+| [claudewatch](https://github.com/blackwell-systems/claudewatch)（9★，已停更） | PostToolUse hooks + MCP | hook 反馈纠偏最接近的前作（"你在循环了，调用 get_blockers()"）——仅 Claude Code，2026-03 起停更。 |
+| [ralph](https://github.com/frankbria/ralph-claude-code)（9.6k★） | shell 包装循环 | 只在迭代边界做退出闸门和限速——靠重启"绕过"失控 agent，不是治理它。 |
+| NeMo Guardrails / Guardrails AI / Langfuse / LangSmith / Helicone | 内容护栏 / SDK / 代理 / SaaS | 结构上无法拦截本地 CLI 的工具调用：代理只见模型 HTTP 流量，内容校验器只见文本，可观测平台是事后分析。 |
+
+**结论：** 监控已商品化、安全 hooks 已拥挤、编排已有人做——本地 coding CLI 的行为级、语义化、运行中执行层是没人交付的那一层。kimi-guard 的护城河是组合而非单点：hook/Wire 接入点 × 语义检测器 × 订阅感知的预算模型。主要战略风险是单 runtime 绑定；分析器核心是纯函数（[PORTING.md](docs/PORTING.md)），正是为了让适配器能拓宽它。
 
 ## 兼容性
 

@@ -161,7 +161,7 @@ ReadFile = 5
 enabled = true
 windowMinutes = 30
 
-[noProgress]              # long stretch of calls with no successful edit (histori-style D3)
+[noProgress]              # long stretch of calls with no successful edit
 enabled = true
 windowMinutes = 30
 warnAt = 15
