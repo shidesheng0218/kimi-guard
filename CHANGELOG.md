@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 — 2026-09-02
+
+- ⚙️ **GitHub Action** (`uses: shidesheng0218/kimi-guard@v0`): one-step supervised agent runs in CI — job summary shows the full report (end reason, blocks by detector, token usage), blocks surface as PR annotations, exit 2 marks the step failed. `agentguard-version: local` mode lets the repo dogfood the action in its own CI.
+- 🎚️ **Threshold profiles**: `profile = "balanced" | "strict" | "chill"` in config.toml, `--profile` per run, or `AGENT_GUARD_PROFILE`. strict intervenes early (headless/CI), chill is hands-off; explicit config keys always override the profile.
+- 🧪 **Gemini CLI adapter** (fourth harness): Gemini has a full hooks system (BeforeTool/AfterTool/BeforeAgent/AfterAgent/PreCompress/SessionEnd). Install into `~/.gemini/settings.json`; events translate to the canonical pipeline (BeforeAgent→goal anchor, AfterAgent→Stop with turn accounting, AfterTool+error→failure). Warn hints use `additionalContext` where supported, `systemMessage` elsewhere.
+- 🧮 **`agentguard calibrate`**: deterministic threshold/exemption suggestions from your fp/tp feedback — prints paste-ready TOML, never edits your config. Repeat false-positives with a stable command prefix become `exemptPatterns` suggestions.
+- 📊 **`agentguard report --sessions`**: cross-session repeat patterns (same signature in multiple sessions, 7d) — finds loops that survive session boundaries.
+
 ## 0.9.0 — 2026-09-02
 
 - 🎮 **Claude Code headless supervision**: `agentguard run --harness claude` spawns `claude -p --output-format stream-json` and supervises the event stream — same analyzers and shared state db (installed hooks do the real-time blocking; the driver watches the same block records), hard caps via `--max-turns` + wall clock, kill switch backstop (SIGINT→SIGKILL) when hooks aren't installed, verify rounds and auto-resume via `--resume <session_id>`, exact token metering from `result.usage`.

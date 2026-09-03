@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { installClaudeHooks, uninstallClaudeHooks, claudeHooksInstalled, CLAUDE_COMMAND_MARKER } from "../src/harness/claude.js";
 import { installCodexHooks, uninstallCodexHooks, codexHooksInstalled, CODEX_COMMAND_MARKER } from "../src/harness/codex.js";
+import { installGeminiHooks, uninstallGeminiHooks, geminiHooksInstalled } from "../src/harness/gemini.js";
+import { translateGeminiEvent } from "../src/hook.js";
 import { loadConfig } from "../src/config.js";
 import { encodeHint } from "../src/hook.js";
 import { guardHome } from "../src/paths.js";
@@ -17,6 +19,7 @@ beforeEach(() => {
   process.env.KIMI_GUARD_HOME = tmp;
   process.env.CLAUDE_SETTINGS_PATH = path.join(tmp, "claude", "settings.json");
   process.env.CODEX_HOOKS_PATH = path.join(tmp, "codex", "hooks.json");
+  process.env.GEMINI_SETTINGS_PATH = path.join(tmp, "gemini", "settings.json");
 });
 
 afterEach(() => {
@@ -24,6 +27,7 @@ afterEach(() => {
   delete process.env.KIMI_GUARD_HOME;
   delete process.env.CLAUDE_SETTINGS_PATH;
   delete process.env.CODEX_HOOKS_PATH;
+  delete process.env.GEMINI_SETTINGS_PATH;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -109,6 +113,83 @@ describe("codex config defaults", () => {
     expect(c.tools.edit).toEqual(["apply_patch", "Edit", "Write"]);
     expect(c.tools.read).toEqual([]);
     expect(c.budget.dispatchTools).toContain("spawn_agent");
+  });
+});
+
+describe("gemini settings.json installer", () => {
+  it("creates settings with gemini event names (BeforeTool/AfterTool/...)", () => {
+    const r = installGeminiHooks();
+    expect(r.created).toBe(true);
+    const settings = JSON.parse(fs.readFileSync(r.configPath, "utf8")) as { hooks: Record<string, Array<{ hooks: Array<{ command: string; timeout: number }> }>> };
+    expect(Object.keys(settings.hooks)).toContain("BeforeTool");
+    expect(Object.keys(settings.hooks)).toContain("AfterAgent");
+    expect(settings.hooks["BeforeTool"]![0]!.hooks[0]!.command).toContain("--harness gemini");
+    expect(settings.hooks["BeforeTool"]![0]!.hooks[0]!.timeout).toBe(5000); // gemini timeouts are milliseconds
+    expect(geminiHooksInstalled()).toBe(true);
+    installGeminiHooks(); // idempotent
+    const again = JSON.parse(fs.readFileSync(r.configPath, "utf8")) as { hooks: Record<string, unknown[]> };
+    expect(again.hooks["BeforeTool"]).toHaveLength(1);
+  });
+
+  it("uninstall removes our entries, keeps others", () => {
+    fs.mkdirSync(path.dirname(process.env.GEMINI_SETTINGS_PATH!), { recursive: true });
+    fs.writeFileSync(process.env.GEMINI_SETTINGS_PATH!, JSON.stringify({ hooks: { BeforeTool: [{ matcher: "", hooks: [{ type: "command", command: "other hook" }] }] } }));
+    installGeminiHooks();
+    expect(uninstallGeminiHooks().removed).toBe(true);
+    expect(geminiHooksInstalled()).toBe(false);
+    const settings = JSON.parse(fs.readFileSync(process.env.GEMINI_SETTINGS_PATH!, "utf8")) as { hooks: Record<string, unknown[]> };
+    expect(settings.hooks["BeforeTool"]).toHaveLength(1);
+  });
+});
+
+describe("gemini config defaults + event translation", () => {
+  it("gemini harness uses gemini tool names", () => {
+    const c = loadConfig(path.join(tmp, "nonexistent.toml"), "gemini");
+    expect(c.tools.shell).toEqual(["run_shell_command"]);
+    expect(c.tools.edit).toContain("write_file");
+    expect(c.repeat.watch).toContain("run_shell_command");
+  });
+
+  it("translates gemini events to canonical names, AfterTool+error → PostToolUseFailure", () => {
+    expect(translateGeminiEvent("BeforeTool", {}).event).toBe("PreToolUse");
+    expect(translateGeminiEvent("BeforeAgent", {}).event).toBe("UserPromptSubmit");
+    expect(translateGeminiEvent("AfterAgent", {}).event).toBe("Stop");
+    expect(translateGeminiEvent("AfterTool", { tool_response: { llmContent: "ok" } }).event).toBe("PostToolUse");
+    expect(translateGeminiEvent("AfterTool", { tool_response: { error: "boom" } }).event).toBe("PostToolUseFailure");
+  });
+});
+
+describe("gemini hook e2e (real CLI, gemini payloads)", () => {
+  const repoRoot = path.join(import.meta.dirname, "..");
+  const CLI = path.join(repoRoot, "node_modules", ".bin", "tsx");
+
+  function runGeminiHook(event: string, payload: unknown): { code: number; stdout: string; stderr: string } {
+    try {
+      const stdout = execFileSync(CLI, ["src/cli.ts", "hook", event, "--harness", "gemini"], {
+        cwd: repoRoot,
+        env: { ...process.env },
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+      });
+      return { code: 0, stdout, stderr: "" };
+    } catch (err) {
+      const e = err as { status?: number; stdout?: string; stderr?: string };
+      return { code: e.status ?? 1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
+    }
+  }
+
+  it("repeat loop on run_shell_command: warn via systemMessage JSON, then exit-2 block", () => {
+    const payload = { session_id: "gem-1", tool_name: "run_shell_command", tool_input: { command: "npm test" } };
+    runGeminiHook("AfterTool", { ...payload, tool_response: { llmContent: "ok" } });
+    runGeminiHook("AfterTool", { ...payload, tool_response: { llmContent: "ok" } });
+    const warn = runGeminiHook("BeforeTool", payload);
+    expect(warn.code).toBe(0);
+    const parsed = JSON.parse(warn.stdout.trim()) as { systemMessage?: string };
+    expect(parsed.systemMessage).toContain("[agent-guard]");
+    runGeminiHook("AfterTool", { ...payload, tool_response: { llmContent: "ok" } });
+    const block = runGeminiHook("BeforeTool", payload);
+    expect(block.code).toBe(2);
+    expect(block.stderr).toContain("[agent-guard]");
   });
 });
 

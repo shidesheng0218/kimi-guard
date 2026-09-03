@@ -20,3 +20,23 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  action-dogfood:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci && npm run build
+      - name: Run the composite action against a fake looping agent
+        uses: ./
+        with:
+          prompt: "find all TODO markers"
+          harness: kimi
+          agent-exec: "node test/wire/fake-kimi.mjs"
+          agentguard-version: local
+          max-steps: "20"
+          max-minutes: "2"
+        env:
+          FAKE_SCENARIO: loop

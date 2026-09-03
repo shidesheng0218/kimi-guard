@@ -36,6 +36,18 @@ export function codexDetected(): boolean {
   return fs.existsSync(path.join(os.homedir(), ".codex"));
 }
 
+/** Gemini CLI settings file (hooks live here). */
+export function geminiSettingsPath(): string {
+  const env = process.env.GEMINI_SETTINGS_PATH;
+  if (env && env.trim()) return path.resolve(env);
+  return path.join(os.homedir(), ".gemini", "settings.json");
+}
+
+/** Is Gemini CLI present on this machine? */
+export function geminiDetected(): boolean {
+  return fs.existsSync(geminiSettingsPath()) || fs.existsSync(path.join(os.homedir(), ".gemini"));
+}
+
 export function stateDbPath(): string {
   return path.join(guardHome(), "state.db");
 }

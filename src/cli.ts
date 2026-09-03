@@ -5,7 +5,8 @@ import { loadConfig, writeConfigTemplate } from "./config.js";
 import { installHooks, uninstallHooks } from "./installer.js";
 import { installClaudeHooks, uninstallClaudeHooks } from "./harness/claude.js";
 import { installCodexHooks, uninstallCodexHooks } from "./harness/codex.js";
-import { claudeDetected, codexDetected } from "./paths.js";
+import { installGeminiHooks, uninstallGeminiHooks } from "./harness/gemini.js";
+import { claudeDetected, codexDetected, geminiDetected } from "./paths.js";
 import { runHook } from "./hook.js";
 import type { HarnessName } from "./toolsets.js";
 import { setMeta, listBlocks, setBlockFeedback } from "./store.js";
@@ -15,6 +16,7 @@ import { captureCheckpoint, latestSessionId, latestCheckpointFile, renderResumeB
 import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js";
 import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
+import { buildCalibrateReport, formatCalibrateReport } from "./calibrate.js";
 
 const program = new Command();
 
@@ -27,10 +29,10 @@ program
   .command("install")
   .description("install hook rules into detected agent CLIs (Kimi Code config.toml and/or Claude Code settings.json)")
   .option("--compat", "legacy-safe mode: only the 3 universally supported hook events (for older kimi-cli versions)")
-  .option("--harness <name>", "kimi | claude | codex | all (default: auto-detect installed harnesses, fallback kimi)")
+  .option("--harness <name>", "kimi | claude | codex | gemini | all (default: auto-detect installed harnesses, fallback kimi)")
   .action((opts: { compat?: boolean; harness?: string }) => {
     const which = opts.harness ?? "auto";
-    const known = ["kimi", "claude", "codex", "all", "auto"];
+    const known = ["kimi", "claude", "codex", "gemini", "all", "auto"];
     if (!known.includes(which)) {
       console.error(`unknown harness: ${which}`);
       process.exitCode = 1;
@@ -39,6 +41,7 @@ program
     const doKimi = which === "kimi" || which === "all" || which === "auto";
     const doClaude = which === "claude" || which === "all" || (which === "auto" && claudeDetected());
     const doCodex = which === "codex" || which === "all" || (which === "auto" && codexDetected());
+    const doGemini = which === "gemini" || which === "all" || (which === "auto" && geminiDetected());
 
     if (doKimi) {
       const r = installHooks("agentguard", Boolean(opts.compat));
@@ -62,13 +65,19 @@ program
       console.log(`✓ [codex] hooks ${r.updated ? "installed" : "already up to date"}${opts.compat ? " (compat)" : ""}`);
       console.log("  note: Codex hooks cover shell/apply_patch/local function tools; hosted tools (e.g. WebSearch) are not observable.");
     }
+    if (doGemini) {
+      const r = installGeminiHooks("agentguard");
+      console.log(`✓ [gemini] config: ${r.configPath}${r.created ? " (created)" : ""}`);
+      if (r.backupPath) console.log(`✓ [gemini] backup: ${r.backupPath}`);
+      console.log(`✓ [gemini] hooks ${r.updated ? "installed" : "already up to date"}`);
+    }
     console.log("  restart the agent CLI (or /reload) to take effect.");
   });
 
 program
   .command("uninstall")
   .description("remove the managed hook entries from Kimi Code config.toml and Claude Code settings.json")
-  .option("--harness <name>", "kimi | claude | codex | all (default: all)")
+  .option("--harness <name>", "kimi | claude | codex | gemini | all (default: all)")
   .action((opts: { harness?: string }) => {
     const which = opts.harness ?? "all";
     if (which === "kimi" || which === "all") {
@@ -83,15 +92,19 @@ program
       const r = uninstallCodexHooks();
       console.log(r.removed ? `✓ [codex] removed hooks from ${r.configPath}` : `[codex] no managed hooks found in ${r.configPath}`);
     }
+    if (which === "gemini" || which === "all") {
+      const r = uninstallGeminiHooks();
+      console.log(r.removed ? `✓ [gemini] removed hooks from ${r.configPath}` : `[gemini] no managed hooks found in ${r.configPath}`);
+    }
   });
 
 program
   .command("hook")
   .argument("<event>", "hook event name, e.g. PreToolUse")
   .description("hook entrypoint invoked by the agent CLI (reads JSON payload from stdin)")
-  .option("--harness <name>", "kimi | claude | codex (default: kimi)", "kimi")
+  .option("--harness <name>", "kimi | claude | codex | gemini (default: kimi)", "kimi")
   .action(async (event: string, opts: { harness: string }) => {
-    const harness: HarnessName = opts.harness === "claude" ? "claude" : opts.harness === "codex" ? "codex" : "kimi";
+    const harness: HarnessName = ["claude", "codex", "gemini"].includes(opts.harness) ? (opts.harness as HarnessName) : "kimi";
     process.exitCode = await runHook(event, harness);
   });
 
@@ -202,14 +215,16 @@ program
   .command("report")
   .description("anonymized aggregate of guard activity (no args/paths/commands — safe to share)")
   .option("--json", "print JSON (default is a text summary)")
-  .action((opts: { json?: boolean }) => {
-    const report = buildGuardReport() as {
+  .option("--sessions", "include cross-session repeat patterns (7d)")
+  .action((opts: { json?: boolean; sessions?: boolean }) => {
+    const report = buildGuardReport(loadConfig(), { sessions: opts.sessions }) as {
       generatedAt: string;
       sessions: number;
       calls24h: number;
       blocks24h: number;
       detectors: Array<{ kind: string; blocks: number; falsePositives: number; confirmed: number; fpRate: number }>;
       budget: { plan: string; precise: boolean; fiveHourPercent: number; weeklyPercent: number };
+      crossSessionRepeats?: Array<{ tool_name: string; args_hash: string; sessions: number; n: number }>;
     };
     if (opts.json) {
       console.log(JSON.stringify({ ...report, version }, null, 2));
@@ -221,8 +236,21 @@ program
     for (const d of report.detectors) {
       console.log(`  ${d.kind.padEnd(12)} blocks=${d.blocks}  fp=${d.falsePositives} (${Math.round(d.fpRate * 100)}%)  tp=${d.confirmed}`);
     }
+    if (report.crossSessionRepeats && report.crossSessionRepeats.length > 0) {
+      console.log("  cross-session repeats (7d, same signature in multiple sessions):");
+      for (const c of report.crossSessionRepeats) {
+        console.log(`    ${c.tool_name} [${c.args_hash}] ×${c.n} across ${c.sessions} sessions`);
+      }
+    }
     console.log(`  budget: ${report.budget.plan}${report.budget.precise ? " (precise)" : ""}  5h=${report.budget.fiveHourPercent}%  weekly=${report.budget.weeklyPercent}%`);
     console.log("  (aggregate only — no arguments, paths or commands are included)");
+  });
+
+program
+  .command("calibrate")
+  .description("suggest threshold/exemption tweaks from your false-positive feedback (prints TOML, never edits config)")
+  .action(() => {
+    console.log(formatCalibrateReport(buildCalibrateReport()));
   });
 
 const probe = program.command("probe").description("capture raw hook payloads for schema discovery");
@@ -288,13 +316,14 @@ program
   .option("--max-minutes <n>", "hard wall-clock cap for the whole run", "30")
   .option("--auto-resume <n>", "re-prompt with checkpoint brief after max_steps/kill-switch", "0")
   .option("--max-verify-rounds <n>", "corrective rounds when the final message makes unbacked completion claims", "2")
+  .option("--profile <name>", "threshold profile: balanced | strict | chill (overrides config and AGENT_GUARD_PROFILE)")
   .option("--no-steer", "disable soft mid-turn corrections")
   .option("--max-steers <n>", "cap on steer injections", "5")
   .option("--yolo", "auto-approve every approval request")
   .option("--json", "print machine-readable report JSON")
   .action(async (promptParts: string[], opts: {
     prompt?: string; exec?: string[]; harness?: string; maxSteps: string; maxMinutes: string;
-    autoResume: string; maxVerifyRounds: string; steer: boolean; maxSteers: string; yolo?: boolean; json?: boolean;
+    autoResume: string; maxVerifyRounds: string; profile?: string; steer: boolean; maxSteers: string; yolo?: boolean; json?: boolean;
   }) => {
     const prompt = opts.prompt ?? promptParts.join(" ");
     if (!prompt.trim()) {
@@ -312,6 +341,7 @@ program
         maxVerifyRounds: Number(opts.maxVerifyRounds),
         approval: opts.yolo ? "approve" : "reject",
         json: Boolean(opts.json),
+        config: loadConfig(undefined, "claude", opts.profile),
       });
       if (opts.json) console.log(JSON.stringify(report, null, 2));
       else console.log(formatReport(report));
@@ -329,6 +359,7 @@ program
       maxVerifyRounds: Number(opts.maxVerifyRounds),
       approval: opts.yolo ? "approve" : "reject",
       json: Boolean(opts.json),
+      config: loadConfig(undefined, "kimi", opts.profile),
     });
     if (opts.json) console.log(JSON.stringify(report, null, 2));
     else console.log(formatReport(report));

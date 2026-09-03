@@ -189,6 +189,24 @@ export function recordBlock(sessionId: string, toolName: string, kind: string, t
   return Number(info.lastInsertRowid);
 }
 
+export interface CrossSessionPattern {
+  tool_name: string;
+  args_hash: string;
+  sessions: number;
+  n: number;
+}
+
+/** Call signatures that repeat across MULTIPLE sessions in the window — cross-session loops. */
+export function crossSessionRepeats(sinceTs: number, minCount = 3, limit = 10): CrossSessionPattern[] {
+  return openDb()
+    .prepare(
+      `SELECT tool_name, args_hash, COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS n
+       FROM calls WHERE ts >= ? GROUP BY tool_name, args_hash
+       HAVING sessions >= 2 AND n >= ? ORDER BY sessions DESC, n DESC LIMIT ?`,
+    )
+    .all(sinceTs, minCount, limit) as unknown as CrossSessionPattern[];
+}
+
 export interface BlockRow {
   id: number;
   session_id: string;

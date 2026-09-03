@@ -1,0 +1,146 @@
+name: agent-guard
+description: >-
+  Supervised coding-agent runs with semantic loop detection, quota gates, a
+  completion gate and a kill switch — the agent cannot loop past it.
+author: shidesheng0218
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  prompt:
+    description: "Task prompt for the agent"
+    required: true
+  harness:
+    description: "claude | kimi (claude = claude -p stream-json supervision; kimi = Wire protocol)"
+    required: false
+    default: "claude"
+  agent-exec:
+    description: "Override the agent command (advanced; e.g. 'kimi --wire' or a test double)"
+    required: false
+    default: ""
+  max-steps:
+    description: "Hard cap on agentic turns/steps"
+    required: false
+    default: "200"
+  max-minutes:
+    description: "Hard wall-clock cap for the whole run"
+    required: false
+    default: "30"
+  auto-resume:
+    description: "Re-prompt N times with a checkpoint brief after hitting caps"
+    required: false
+    default: "1"
+  profile:
+    description: "Detector threshold profile: balanced | strict | chill"
+    required: false
+    default: "balanced"
+  agentguard-version:
+    description: "agentguard version to install (default: latest)"
+    required: false
+    default: "latest"
+  working-directory:
+    description: "Directory the agent works in"
+    required: false
+    default: "."
+  yolo:
+    description: "Auto-approve every agent approval request (claude: bypassPermissions)"
+    required: false
+    default: "false"
+
+outputs:
+  end-reason:
+    description: "finished | max_steps | timeout | kill-switch | verify | error"
+    value: ${{ steps.parse.outputs.end-reason }}
+  blocks:
+    description: "Number of guard interventions"
+    value: ${{ steps.parse.outputs.blocks }}
+  report-path:
+    description: "Path to the full JSON run report"
+    value: ${{ steps.parse.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Install agentguard
+      shell: bash
+      run: |
+        if [ "${{ inputs.agentguard-version }}" = "local" ]; then
+          npm i -g "$GITHUB_ACTION_PATH"   # dogfood: the action's own checkout
+        elif [ "${{ inputs.agentguard-version }}" = "latest" ]; then
+          npm i -g @shidesheng0218/agentguard
+        else
+          npm i -g "@shidesheng0218/agentguard@${{ inputs.agentguard-version }}"
+        fi
+
+    - name: Install guard hooks
+      shell: bash
+      run: agentguard install --harness "${{ inputs.harness }}"
+
+    - name: Run supervised agent
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+        exec_args=()
+        if [ -n "${{ inputs.agent-exec }}" ]; then
+          read -ra exec_args <<< "${{ inputs.agent-exec }}"
+          agentguard run --harness "${{ inputs.harness }}" --exec "${exec_args[@]}" \
+            --max-steps "${{ inputs.max-steps }}" --max-minutes "${{ inputs.max-minutes }}" \
+            --auto-resume "${{ inputs.auto-resume }}" --profile "${{ inputs.profile }}" \
+            ${{ inputs.yolo == 'true' && '--yolo' || '' }} \
+            --json "${{ inputs.prompt }}" > "$RUNNER_TEMP/agentguard-out.txt" 2>&1
+        else
+          agentguard run --harness "${{ inputs.harness }}" \
+            --max-steps "${{ inputs.max-steps }}" --max-minutes "${{ inputs.max-minutes }}" \
+            --auto-resume "${{ inputs.auto-resume }}" --profile "${{ inputs.profile }}" \
+            ${{ inputs.yolo == 'true' && '--yolo' || '' }} \
+            --json "${{ inputs.prompt }}" > "$RUNNER_TEMP/agentguard-out.txt" 2>&1
+        fi
+        echo "$?" > "$RUNNER_TEMP/agentguard-rc"
+        exit 0
+
+    - name: Summarize
+      id: parse
+      shell: bash
+      if: always()
+      run: |
+        RC=$(cat "$RUNNER_TEMP/agentguard-rc" 2>/dev/null || echo 1)
+        node - "$RUNNER_TEMP/agentguard-out.txt" <<'EOF'
+        const fs = require("fs");
+        const out = fs.readFileSync(process.argv[2], "utf8");
+        const start = out.indexOf("{");
+        let report = null;
+        try { report = JSON.parse(out.slice(start)); } catch {}
+        const lines = [];
+        if (report) {
+          lines.push("## 🛡️ agent-guard run report", "");
+          lines.push("| | |", "|---|---|");
+          lines.push(`| end reason | **${report.endReason}** |`);
+          lines.push(`| steps | ${report.steps} |`);
+          lines.push(`| tool calls | ${report.toolCalls} |`);
+          lines.push(`| blocks | ${report.blocks?.length ?? 0} |`);
+          lines.push(`| steers | ${report.steers?.length ?? 0} |`);
+          lines.push(`| verify rounds | ${report.verifyRounds ?? 0} |`);
+          const t = report.tokenUsage || {};
+          lines.push(`| tokens | in ${(t.input_other||0)+(t.input_cache_read||0)+(t.input_cache_creation||0)} (cache ${t.input_cache_read||0}) / out ${t.output||0} |`);
+          if (report.blocks?.length) {
+            lines.push("", "### Guard interventions");
+            for (const b of report.blocks) {
+              lines.push(`- \`${b.kind}\` on ${b.tool}: ${b.message}`);
+              console.log(`::warning ::[agent-guard] blocked ${b.kind} on ${b.tool}`);
+            }
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `end-reason=${report.endReason}\nblocks=${report.blocks?.length ?? 0}\nreport-path=${report.reportPath}\n`);
+        } else {
+          lines.push("## 🛡️ agent-guard", "", "run produced no report — see step log");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "end-reason=error\nblocks=0\nreport-path=\n");
+        }
+        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+        EOF
+        cat "$RUNNER_TEMP/agentguard-out.txt"
+        exit "$RC"

@@ -1,6 +1,6 @@
 import type { GuardConfig } from "./config.js";
 
-export type HarnessName = "kimi" | "claude" | "codex";
+export type HarnessName = "kimi" | "claude" | "codex" | "gemini";
 
 /**
  * Canonical tool-name taxonomy. Every place that classifies a call by tool
@@ -29,6 +29,12 @@ export const CODEX_READ_TOOLS: string[] = [];
 export const CODEX_SEARCH_TOOLS: string[] = [];
 export const CODEX_SHELL_TOOLS = ["Bash"];
 
+/** Gemini CLI tool names (hooks report these verbatim). */
+export const GEMINI_EDIT_TOOLS = ["write_file", "replace", "edit"];
+export const GEMINI_READ_TOOLS = ["read_file", "read_many_files"];
+export const GEMINI_SEARCH_TOOLS = ["glob", "search_file_content", "grep"];
+export const GEMINI_SHELL_TOOLS = ["run_shell_command"];
+
 export interface ToolDefaults {
   edit: string[];
   read: string[];
@@ -41,6 +47,8 @@ export function toolDefaultsFor(harness: HarnessName): ToolDefaults {
     return { edit: [...CLAUDE_EDIT_TOOLS], read: [...CLAUDE_READ_TOOLS], search: [...CLAUDE_SEARCH_TOOLS], shell: [...CLAUDE_SHELL_TOOLS] };
   if (harness === "codex")
     return { edit: [...CODEX_EDIT_TOOLS], read: [...CODEX_READ_TOOLS], search: [...CODEX_SEARCH_TOOLS], shell: [...CODEX_SHELL_TOOLS] };
+  if (harness === "gemini")
+    return { edit: [...GEMINI_EDIT_TOOLS], read: [...GEMINI_READ_TOOLS], search: [...GEMINI_SEARCH_TOOLS], shell: [...GEMINI_SHELL_TOOLS] };
   return { edit: [...DEFAULT_EDIT_TOOLS], read: [...DEFAULT_READ_TOOLS], search: [...DEFAULT_SEARCH_TOOLS], shell: [...DEFAULT_SHELL_TOOLS] };
 }
 

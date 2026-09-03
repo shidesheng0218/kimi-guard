@@ -152,7 +152,8 @@ kguard status           # calls, interventions, sessions, budget windows + inter
 kguard budget           # quota metering snapshot: windows, burn rate, projection
 kguard blocks [-n N]    # recent blocks with ids
 kguard feedback fp|tp <id>  # mark a block false-positive / confirmed — calibrates detectors
-kguard report [--json]  # anonymized aggregate export (safe to share)
+kguard report [--json] [--sessions]  # anonymized aggregate (+ cross-session patterns)
+agentguard calibrate    # suggest threshold tweaks from your feedback (prints TOML)
 kguard checkpoint       # capture a research-state checkpoint now
 kguard resume           # print a paste-ready context block from the latest checkpoint
 kguard run -- <prompt>  # supervised headless run in Wire mode (see below)
@@ -192,6 +193,30 @@ event stream: same analyzers and state db (shared with the installed hooks, whic
 hard caps via `--max-turns` + wall clock, kill switch (SIGINT → SIGKILL), verify rounds and auto-resume
 via `--resume`, exact token metering from `result.usage`. Mid-turn steer is not available (the stream is
 read-only) — blocks still reach the model through the installed hooks in real time.
+
+### Use in CI (GitHub Action)
+
+```yaml
+- uses: shidesheng0218/kimi-guard@v0
+  with:
+    prompt: "refactor the auth module and make tests pass"
+    harness: claude            # or kimi
+    max-steps: 100
+    max-minutes: 20
+    profile: strict            # tighter thresholds for unattended runs
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+The step fails (exit 2) when the guard intervened, and the job summary shows a full report: end reason,
+blocks by detector, token usage. Individual blocks also appear as PR annotations.
+
+### Threshold profiles
+
+`profile = "balanced" | "strict" | "chill"` in config.toml (or `--profile` per run, or `AGENT_GUARD_PROFILE`):
+`balanced` is the shipped default; `strict` intervenes earlier (headless/CI); `chill` is maximally hands-off.
+Your own config keys always override the profile. `agentguard calibrate` suggests per-detector tweaks from
+your false-positive feedback — it prints TOML, it never edits your config.
 
 ## Configuration
 

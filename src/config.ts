@@ -2,10 +2,13 @@ import fs from "node:fs";
 import { parse as parseToml } from "smol-toml";
 import { userConfigPath } from "./paths.js";
 import { toolDefaultsFor, type HarnessName } from "./toolsets.js";
+import { applyProfile, PROFILE_NAMES, type ProfileName } from "./profiles.js";
 
 export interface GuardConfig {
   /** which agent harness this config instance serves (affects tool-name defaults and event mapping) */
   harness: HarnessName;
+  /** active threshold profile (balanced | strict | chill) */
+  profile: string;
   /** canonical tool-name taxonomy — every tool-name classifier reads through here */
   tools: {
     edit: string[];
@@ -117,6 +120,7 @@ export interface GuardConfig {
 
 export const defaultConfig: GuardConfig = {
   harness: "kimi",
+  profile: "balanced",
   tools: toolDefaultsFor("kimi"),
   repeat: {
     enabled: true,
@@ -176,6 +180,8 @@ export const defaultConfig: GuardConfig = {
 
 const CONFIG_TEMPLATE = `# agent-guard configuration
 # Docs: https://github.com/shidesheng0218/kimi-guard
+
+profile = "balanced"    # balanced | strict | chill — threshold bundle; explicit keys below override it
 
 [tools]                   # canonical tool-name taxonomy — if your CLI version renames tools, fix it HERE
 edit = ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"]
@@ -298,6 +304,15 @@ function applyCodexDefaults(cfg: GuardConfig): void {
   cfg.budget.dispatchTools = ["Agent", "spawn_agent"];
 }
 
+/** Gemini CLI defaults. run_shell_command is the shell tool; edits are write_file/replace. */
+function applyGeminiDefaults(cfg: GuardConfig): void {
+  cfg.tools = toolDefaultsFor("gemini");
+  cfg.repeat.watch = ["run_shell_command", "glob", "search_file_content", "grep", "read_file", "web_fetch", "google_web_search"];
+  cfg.repeat.thresholds = {};
+  // no known subagent-dispatch tool name on Gemini — budget gate stays off by default
+  cfg.budget.dispatchTools = [];
+}
+
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
@@ -315,11 +330,12 @@ function strArrOrNull(v: unknown): string[] | null {
   return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length > 0 ? (v as string[]) : null;
 }
 
-export function loadConfig(configPath = userConfigPath(), harness: HarnessName = "kimi"): GuardConfig {
+export function loadConfig(configPath = userConfigPath(), harness: HarnessName = "kimi", profileOverride?: string): GuardConfig {
   const cfg: GuardConfig = structuredClone(defaultConfig);
   cfg.harness = harness;
   if (harness === "claude") applyClaudeDefaults(cfg);
   if (harness === "codex") applyCodexDefaults(cfg);
+  if (harness === "gemini") applyGeminiDefaults(cfg);
   let raw: string;
   try {
     raw = fs.readFileSync(configPath, "utf8");
@@ -333,6 +349,17 @@ export function loadConfig(configPath = userConfigPath(), harness: HarnessName =
     process.stderr.write(`[agent-guard] failed to parse ${configPath}: ${(err as Error).message}\n`);
     return cfg;
   }
+
+  // Threshold profile overlay: sits between harness defaults and the user's
+  // explicit keys (explicit keys always win). Priority: flag > env > file.
+  const profileName =
+    profileOverride ??
+    process.env.AGENT_GUARD_PROFILE ??
+    (typeof data["profile"] === "string" ? data["profile"] : "balanced");
+  if (profileName !== "balanced" && !PROFILE_NAMES.includes(profileName as ProfileName)) {
+    process.stderr.write(`[agent-guard] unknown profile "${profileName}" — using balanced\n`);
+  }
+  applyProfile(cfg, profileName);
 
   const section = (name: string): Record<string, unknown> =>
     (data[name] as Record<string, unknown> | undefined) ?? {};

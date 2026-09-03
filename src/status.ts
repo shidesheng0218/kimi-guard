@@ -2,11 +2,12 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import pc from "picocolors";
 import { loadConfig } from "./config.js";
-import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath, claudeDetected, claudeSettingsPath, codexDetected, codexHooksPath } from "./paths.js";
+import { guardHome, probeLogPath, stateDbPath, detectKimiConfig, userConfigPath, claudeDetected, claudeSettingsPath, codexDetected, codexHooksPath, geminiDetected, geminiSettingsPath } from "./paths.js";
 import { hooksInstalled } from "./installer.js";
 import { claudeHooksInstalled } from "./harness/claude.js";
 import { codexHooksInstalled } from "./harness/codex.js";
-import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, type BlockKindStat } from "./store.js";
+import { geminiHooksInstalled } from "./harness/gemini.js";
+import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, crossSessionRepeats, type BlockKindStat } from "./store.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
@@ -61,7 +62,7 @@ export function calibrationHints(stats: BlockKindStat[]): string[] {
  * runaway-pattern reports. Contains counts and rates only: no args, paths,
  * commands, or session identifiers.
  */
-export function buildGuardReport(cfg = loadConfig()): Record<string, unknown> {
+export function buildGuardReport(cfg = loadConfig(), opts?: { sessions?: boolean }): Record<string, unknown> {
   const s = buildStatus();
   const detectors = blockKindStats().map((k) => ({
     kind: k.kind,
@@ -72,7 +73,7 @@ export function buildGuardReport(cfg = loadConfig()): Record<string, unknown> {
   }));
   const sid = latestSessionId() ?? "unknown";
   const snap = budgetSnapshot(sid, cfg.budget);
-  return {
+  const report: Record<string, unknown> = {
     tool: "agent-guard",
     generatedAt: new Date().toISOString(),
     sessions: knownSessions(1000).length,
@@ -86,6 +87,10 @@ export function buildGuardReport(cfg = loadConfig()): Record<string, unknown> {
       weeklyPercent: snap.weekly.percent,
     },
   };
+  if (opts?.sessions) {
+    report["crossSessionRepeats"] = crossSessionRepeats(Date.now() - 7 * 86_400_000);
+  }
+  return report;
 }
 
 /** Best-effort detection of a running agent CLI process (unix only). */
@@ -97,7 +102,7 @@ function agentProcessRunning(): boolean {
     return r.stdout.split("\n").some((line) => {
       const l = line.trim();
       if (l.includes("agentguard") || l.includes("kimi-guard") || l.includes("kguard")) return false;
-      return /(?:^|[/\s])(kimi|claude|codex)(?:\s|$)/.test(l);
+      return /(?:^|[/\s])(kimi|claude|codex|gemini)(?:\s|$)/.test(l);
     });
   } catch {
     return false;
@@ -112,6 +117,7 @@ export function cmdStatus(): void {
   const lastHook = lastHookTs > 0 ? `${new Date(lastHookTs).toISOString()} (${getMeta("last_hook_event") ?? "?"})` : "never";
   const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
   console.log(`agent-guard status (state: ${stateDbPath()})`);
+  console.log(`  profile:             ${cfg.profile}`);
   console.log(`  last activity:       ${dt}`);
   console.log(`  last hook activity:  ${lastHook}`);
   if (normalizeMisses > 0) {
@@ -185,7 +191,8 @@ export function cmdDoctor(): number {
   const kimi = detectKimiConfig();
   const hasClaude = claudeDetected();
   const hasCodex = codexDetected();
-  if (kimi.exists || (!hasClaude && !hasCodex)) {
+  const hasGemini = geminiDetected();
+  if (kimi.exists || (!hasClaude && !hasCodex && !hasGemini)) {
     check(
       kimi.exists,
       `kimi config found: ${kimi.path}`,
@@ -216,6 +223,16 @@ export function cmdDoctor(): number {
     );
   } else {
     console.log(`  ${pc.dim("-")} codex not detected (skipped)`);
+  }
+
+  if (geminiDetected()) {
+    check(
+      geminiHooksInstalled(),
+      `[gemini] hooks present in ${geminiSettingsPath()}`,
+      `[gemini] hooks not installed — run: agentguard install --harness gemini`,
+    );
+  } else {
+    console.log(`  ${pc.dim("-")} gemini not detected (skipped)`);
   }
 
   const kimiConfigText = fs.existsSync(kimi.path) ? fs.readFileSync(kimi.path, "utf8") : "";
