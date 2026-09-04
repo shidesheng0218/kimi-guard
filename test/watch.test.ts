@@ -35,12 +35,12 @@ describe("watch render (pure)", () => {
     expect(text).toContain("no interventions");
   });
 
-  it("never exceeds the terminal width", () => {
+  it("never exceeds the terminal width (measured without ANSI codes)", () => {
     const s = state({
       sessions: [{ session_id: "x".repeat(80), last_ts: 0, n: 99999 }],
     });
     for (const line of renderDashboard(s, 60, 20)) {
-      expect(line.length).toBeLessThanOrEqual(60);
+      expect(line.replace(/\x1b\[[0-9;]*m/g, "").length).toBeLessThanOrEqual(60);
     }
   });
 

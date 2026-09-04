@@ -116,23 +116,24 @@ export function cmdStatus(): void {
   const lastHookTs = Number(getMeta("last_hook_ts") ?? "0");
   const lastHook = lastHookTs > 0 ? `${new Date(lastHookTs).toISOString()} (${getMeta("last_hook_event") ?? "?"})` : "never";
   const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
-  console.log(`agent-guard status (state: ${stateDbPath()})`);
-  console.log(`  profile:             ${cfg.profile}`);
-  console.log(`  last activity:       ${dt}`);
-  console.log(`  last hook activity:  ${lastHook}`);
+  console.log(`${pc.bold(pc.magentaBright("◆ agent-guard status"))} ${pc.dim(`(state: ${stateDbPath()})`)}`);
+  console.log(`  ${pc.dim("profile:")}             ${pc.bold(cfg.profile)}`);
+  console.log(`  ${pc.dim("last activity:")}       ${dt}`);
+  console.log(`  ${pc.dim("last hook activity:")}  ${lastHook}`);
   if (normalizeMisses > 0) {
     console.log(`  ${pc.yellow("!")} payload normalization misses: ${normalizeMisses} — possible upstream schema drift; run 'kguard probe on' and compare 'kguard doctor' field coverage`);
   }
-  console.log(`  tool calls (24h):    ${s.calls24h}`);
+  console.log(`  ${pc.dim("tool calls (24h):")}    ${s.calls24h}`);
   const parts24 = s.blocks24h.map((b) => `${b.kind}×${b.n}`).join(", ");
-  console.log(`  interventions (24h): ${parts24 || "none"}`);
+  console.log(`  ${pc.dim("interventions (24h):")} ${parts24 || "none"}`);
   const stats = blockKindStats();
   const withFeedback = stats.filter((k) => k.fp + k.tp > 0);
   if (withFeedback.length > 0) {
-    console.log("  intervention quality (all time):");
+    console.log(`  ${pc.bold("intervention quality (all time):")}`);
     for (const k of stats) {
       const rate = k.n > 0 ? Math.round((k.fp / k.n) * 100) : 0;
-      console.log(`    ${k.kind.padEnd(12)} blocks=${k.n}  fp=${k.fp} (${rate}%)  confirmed=${k.tp}`);
+      const fpText = k.fp > 0 ? pc.red(`${k.fp} (${rate}%)`) : pc.green("0");
+      console.log(`    ${k.kind.padEnd(12)} blocks=${k.n}  fp=${fpText}  confirmed=${k.tp}`);
     }
     for (const h of calibrationHints(stats)) console.log(`  ${pc.yellow("!")} calibration: ${h}`);
   }

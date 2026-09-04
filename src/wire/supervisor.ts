@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import pc from "picocolors";
 import { WireClient } from "./client.js";
 import type { TokenUsage, ToolCallPayload, ToolResultPayload, StatusUpdatePayload, StepBeginPayload, StepRetryPayload, HookRequestPayload, HookResponse, ApprovalRequestPayload, SubagentEventPayload } from "./protocol.js";
 import { hashOutput, fingerprint, outputSampleOf } from "../events.js";
@@ -520,22 +521,25 @@ function extractFile(args: unknown): string | null {
 
 export function formatReport(r: RunReport): string {
   const dur = Math.round(r.durationMs / 1000);
+  const end = r.endReason === "finished" ? pc.green(r.endReason) : pc.red(r.endReason);
+  const blocksText =
+    r.blocks.length === 0 ? pc.green("none") : pc.red(r.blocks.map((b) => `${b.kind}(${b.tool})`).join(", "));
   const lines = [
-    `agent-guard run report`,
-    `  run id:   ${r.runId}`,
-    `  command:  ${r.command.join(" ")}`,
-    `  duration: ${dur}s   steps: ${r.steps}   tool calls: ${r.toolCalls}   turns: ${r.turns}${r.resumes > 0 ? ` (resumed ×${r.resumes})` : ""}`,
-    `  end:      ${r.endReason} (last prompt status: ${r.finalStatus})`,
-    `  blocks:   ${r.blocks.length === 0 ? "none" : r.blocks.map((b) => `${b.kind}(${b.tool})`).join(", ")}`,
-    `  steers:   ${r.steers.length === 0 ? "none" : String(r.steers.length)}`,
-    r.verifyRounds > 0 ? `  verify:   ${r.verifyRounds} corrective round(s) for unbacked completion claims` : "",
-    r.vetoes > 0 ? `  veto:     ${r.vetoes} false-positive veto vote(s) accepted the completion` : "",
-    r.thinkingDominance > 0 ? `  thinking: ${r.thinkingDominance} thinking-dominated turn(s) flagged` : "",
-    `  approvals: ${r.approvals.approved} approved, ${r.approvals.rejected} rejected`,
-    `  tokens:   in ${r.tokenUsage.input_other + r.tokenUsage.input_cache_read + r.tokenUsage.input_cache_creation} (cache read ${r.tokenUsage.input_cache_read}) / out ${r.tokenUsage.output}`,
-    r.stepRetries.length > 0 ? `  retries:  ${r.stepRetries.length} (last: ${r.stepRetries[r.stepRetries.length - 1]?.error_type})` : "",
-    `  report:   ${r.reportPath}`,
-    `  wire log: ${r.logPath}`,
+    `${pc.bold(pc.magentaBright("◆ agent-guard run report"))}`,
+    `  ${pc.dim("run id:")}   ${r.runId}`,
+    `  ${pc.dim("command:")}  ${r.command.join(" ")}`,
+    `  ${pc.dim("duration:")} ${dur}s   ${pc.dim("steps:")} ${r.steps}   ${pc.dim("tool calls:")} ${r.toolCalls}   ${pc.dim("turns:")} ${r.turns}${r.resumes > 0 ? pc.yellow(` (resumed ×${r.resumes})`) : ""}`,
+    `  ${pc.dim("end:")}      ${end} ${pc.dim(`(last prompt status: ${r.finalStatus})`)}`,
+    `  ${pc.dim("blocks:")}   ${blocksText}`,
+    `  ${pc.dim("steers:")}   ${r.steers.length === 0 ? pc.dim("none") : pc.yellow(String(r.steers.length))}`,
+    r.verifyRounds > 0 ? pc.yellow(`  ${pc.dim("verify:")}   ${r.verifyRounds} corrective round(s) for unbacked completion claims`) : "",
+    r.vetoes > 0 ? `  ${pc.dim("veto:")}     ${r.vetoes} false-positive veto vote(s) accepted the completion` : "",
+    r.thinkingDominance > 0 ? pc.yellow(`  ${pc.dim("thinking:")} ${r.thinkingDominance} thinking-dominated turn(s) flagged`) : "",
+    `  ${pc.dim("approvals:")} ${r.approvals.approved} approved, ${r.approvals.rejected} rejected`,
+    `  ${pc.dim("tokens:")}   in ${r.tokenUsage.input_other + r.tokenUsage.input_cache_read + r.tokenUsage.input_cache_creation} (cache read ${r.tokenUsage.input_cache_read}) / out ${r.tokenUsage.output}`,
+    r.stepRetries.length > 0 ? pc.yellow(`  ${pc.dim("retries:")}  ${r.stepRetries.length} (last: ${r.stepRetries[r.stepRetries.length - 1]?.error_type})`) : "",
+    `  ${pc.dim("report:")}   ${r.reportPath}`,
+    `  ${pc.dim("wire log:")} ${r.logPath}`,
   ];
   return lines.filter(Boolean).join("\n");
 }
