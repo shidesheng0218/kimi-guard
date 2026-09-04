@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 — 2026-09-04
+
+- 🎨 **Visual identity pass**: a single color system (`src/ui.ts`, echoing the banner's violet→blue palette) across the watch TUI, `status`, and the run report — semantic colors (green healthy / yellow warn / red interventions), colored budget bars, brand headers. ANSI-aware width math keeps panels aligned at any terminal size.
+
 ## 1.1.0 — 2026-09-04
 
 - 🖥️ **macOS desktop integration**: opt-in native notifications on interventions (`[notify]` config, osascript fire-and-forget — kill switch alerts include sound), wired into hooks mode and both headless drivers.
