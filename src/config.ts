@@ -89,6 +89,12 @@ export interface GuardConfig {
     enabled: boolean;
     warnPercent: number;
   };
+  /** macOS desktop notifications on guard interventions */
+  notify: {
+    enabled: boolean;
+    onBlock: boolean;
+    onKillSwitch: boolean;
+  };
   churn: {
     enabled: boolean;
     windowMinutes: number;
@@ -153,6 +159,7 @@ export const defaultConfig: GuardConfig = {
   thinking: { enabled: true, minThinkChars: 20000, maxTextRatio: 0.1 },
   anchor: { enabled: true, everyNPrompts: 5, maxChars: 1000 },
   context: { enabled: true, warnPercent: 85 },
+  notify: { enabled: false, onBlock: true, onKillSwitch: true },
   noGain: { enabled: true, windowMinutes: 30, warnAt: 3, blockAt: 4, fuzzyEnabled: true, fuzzySimilarity: 0.85, fuzzyWarnAt: 4, fuzzyBlockAt: 6 },
   churn: {
     enabled: true,
@@ -248,6 +255,11 @@ maxChars = 1000
 [context]                 # context-fill gate (Wire mode reads StatusUpdate.context_usage)
 enabled = true
 warnPercent = 85          # steer a wrap-up warning when context is this full
+
+[notify]                  # macOS desktop notifications (osascript, fire-and-forget)
+enabled = false           # opt-in — a guard should never spam the desktop by default
+onBlock = true            # notify when a tool call is blocked
+onKillSwitch = true       # notify (with sound) when the kill switch fires
 
 [noGain]                  # different args, byte-identical output
 enabled = true
@@ -441,6 +453,11 @@ export function loadConfig(configPath = userConfigPath(), harness: HarnessName =
   const context = section("context");
   cfg.context.enabled = bool(context["enabled"], cfg.context.enabled);
   cfg.context.warnPercent = num(context["warnPercent"], cfg.context.warnPercent);
+
+  const notify = section("notify");
+  cfg.notify.enabled = bool(notify["enabled"], cfg.notify.enabled);
+  cfg.notify.onBlock = bool(notify["onBlock"], cfg.notify.onBlock);
+  cfg.notify.onKillSwitch = bool(notify["onKillSwitch"], cfg.notify.onKillSwitch);
 
   const noGain = section("noGain");
   cfg.noGain.enabled = bool(noGain["enabled"], cfg.noGain.enabled);

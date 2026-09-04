@@ -17,6 +17,7 @@ import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js
 import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
 import { buildCalibrateReport, formatCalibrateReport } from "./calibrate.js";
+import { menubarText, installMenubar } from "./menubar.js";
 
 const program = new Command();
 
@@ -259,6 +260,27 @@ program
   .action(async () => {
     const { watch } = await import("./watch/index.js");
     await watch();
+  });
+
+program
+  .command("menubar")
+  .description("print the xbar/SwiftBar plugin status line (menu bar integration for macOS)")
+  .option("--install", "install the plugin into the xbar/SwiftBar plugins directory")
+  .action((opts: { install?: boolean }) => {
+    if (process.platform !== "darwin") {
+      console.log("menubar integration is macOS-only");
+      return;
+    }
+    if (opts.install) {
+      const r = installMenubar();
+      if (r.missing) {
+        console.log("no xbar/SwiftBar found — install one first: brew install --cask xbar");
+        return;
+      }
+      for (const p of r.installed) console.log(`✓ installed ${p} (refreshes every minute)`);
+      return;
+    }
+    console.log(menubarText());
   });
 
 program

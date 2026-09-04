@@ -9,6 +9,7 @@ import { analyzeCall } from "../analysis.js";
 import { loadConfig, type GuardConfig } from "../config.js";
 import { evaluateBudgetGate } from "../meter.js";
 import { refreshPreciseIfStale } from "../precise.js";
+import { notifyDesktop } from "../notify.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
 import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
@@ -387,6 +388,9 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
     if (block) {
       recordBlock(sessionId(), toolName, block.kind);
       report.blocks.push({ tool: toolName, kind: block.kind, message: block.message, ts: Date.now() });
+      if (cfg.notify.enabled && cfg.notify.onBlock) {
+        notifyDesktop("🛡️ agent-guard", `blocked ${block.kind} on ${toolName}`);
+      }
       const blocksInSession = countBlocks(sessionId(), Date.now() - cfg.policy.blockWindowMinutes * 60_000);
       if (cfg.policy.killSwitch && blocksInSession >= cfg.policy.maxBlocksPerSession) {
         killSwitchArmed = true;

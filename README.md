@@ -216,6 +216,21 @@ turns, context pressure, step-cap) run against the guard and scored 0–100. Fix
 deterministic; `--harness claude` drives a real CLI (observational). `--save` keeps scoreboards under
 the guard home for a recurring leaderboard.
 
+### macOS desktop integration
+
+Opt-in, zero-daemon:
+
+```toml
+[notify]                # native notifications on interventions (osascript, fire-and-forget)
+enabled = true
+onBlock = true          # every block
+onKillSwitch = true     # kill switch, with sound
+```
+
+And a menu-bar plugin for [xbar](https://xbarapp.com/)/[SwiftBar](https://swiftbar.app): `agentguard menubar --install`
+writes a per-minute plugin that shows quota windows and the latest block; `agentguard menubar` prints the
+plugin output directly (that's all the protocol is — a script that prints).
+
 ### Use in CI (GitHub Action)
 
 ```yaml

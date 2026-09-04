@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-09-04
+
+- 🖥️ **macOS desktop integration**: opt-in native notifications on interventions (`[notify]` config, osascript fire-and-forget — kill switch alerts include sound), wired into hooks mode and both headless drivers.
+- 📊 **Menu bar plugin** for xbar/SwiftBar: `agentguard menubar` prints the status line (quota windows, 24h interventions, last block); `agentguard menubar --install` drops a per-minute plugin into the plugins directory. xbar/SwiftBar polls it — the guard stays daemon-free.
+
 ## 1.0.0 — 2026-09-04
 
 - 📺 **`agentguard watch` — live TUI dashboard**: all agent sessions across every installed harness on one screen, the interventions feed lighting up red as blocks land, quota windows with burn rate. Zero dependencies, raw ANSI, 500ms polling over the local state db. `q` to quit.

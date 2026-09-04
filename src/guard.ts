@@ -4,6 +4,7 @@ import { probeLogPath } from "./paths.js";
 import type { GuardConfig } from "./config.js";
 import { analyzeCall } from "./analysis.js";
 import { isKillSwitchTripped, resolveFindings } from "./policy.js";
+import { notifyDesktop } from "./notify.js";
 import { evaluateBudgetGate } from "./meter.js";
 import { captureCheckpoint } from "./checkpoint.js";
 import { hasEvidence, hasRecentEdits, HOOKS_STOP_BLOCK_REASON } from "./verify.js";
@@ -158,10 +159,14 @@ function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload,
   if (decision.action === "block") {
     // Record the DETECTOR kind (repeat/churn/budget/...), not a generic label —
     // per-detector stats power the false-positive feedback loop.
-    const kind = isKillSwitchTripped(blocksInSession, cfg.policy)
+    const killSwitch = isKillSwitchTripped(blocksInSession, cfg.policy);
+    const kind = killSwitch
       ? "killSwitch"
       : (analysis.findings.find((f) => f.severity === "block")?.kind ?? "unknown");
     const id = recordBlock(sessionId, call.tool, kind, now);
+    if (cfg.notify.enabled && (killSwitch ? cfg.notify.onKillSwitch : cfg.notify.onBlock)) {
+      notifyDesktop("🛡️ agent-guard", `${killSwitch ? "kill switch — session locked" : `blocked ${kind} on ${call.tool}`}`, { sound: killSwitch });
+    }
     return { code: 2, stderr: decision.blockReason + feedbackHint(id) };
   }
   if (decision.action === "warn" && decision.contextHint) {
