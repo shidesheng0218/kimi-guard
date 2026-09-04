@@ -161,6 +161,9 @@ kguard doctor           # verify node/state db/config/PATH/probe
 kguard probe on|off|show [−n N]   # capture raw hook payloads
 kguard config init|show|get <key> # manage ~/.kimi-guard/config.toml
 kguard hook <event>     # (used by the CLI, reads JSON from stdin)
+agentguard watch        # live TUI: sessions, interventions and budget across all harnesses
+agentguard replay [run] # annotated timeline of a recorded run (blocks highlighted)
+agentguard bench        # public benchmark: scripted pathological agents vs the guard, scored
 ```
 
 ### `agentguard run` — supervised headless runs
@@ -193,6 +196,25 @@ event stream: same analyzers and state db (shared with the installed hooks, whic
 hard caps via `--max-turns` + wall clock, kill switch (SIGINT → SIGKILL), verify rounds and auto-resume
 via `--resume`, exact token metering from `result.usage`. Mid-turn steer is not available (the stream is
 read-only) — blocks still reach the model through the installed hooks in real time.
+
+### `agentguard watch` — live dashboard
+
+A zero-dependency TUI over the local state db: all agent sessions across harnesses, the interventions
+feed (blocks light up red as they land), and the quota windows with burn rate. `q` to quit.
+
+![watch demo](assets/demo-watch.gif)
+
+### `agentguard replay` — annotated run timeline
+
+Every supervised run writes a raw log; `agentguard replay` renders it as a timeline with blocks marked
+🔴 — the post-mortem of a runaway run, screenshot-ready.
+
+### `agentguard bench` — the public benchmark
+
+Scripted pathological scenarios (loop storm, no-gain spin, fake completion claims, thinking-dominated
+turns, context pressure, step-cap) run against the guard and scored 0–100. Fixture mode is free and
+deterministic; `--harness claude` drives a real CLI (observational). `--save` keeps scoreboards under
+the guard home for a recurring leaderboard.
 
 ### Use in CI (GitHub Action)
 

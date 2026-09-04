@@ -101,6 +101,9 @@ kguard run -- <任务描述>  # Wire 模式下的受监督无人值守运行（�
 kguard doctor           # 验证 node / 状态库 / 配置 / PATH / 探针
 kguard probe on|off|show [-n N]   # 抓取原始 hook payload
 kguard config init|show|get <key> # 管理 ~/.kimi-guard/config.toml
+agentguard watch        # 实时 TUI：跨 harness 会话、拦截流、配额水位
+agentguard replay [run] # 已录制运行的时间轴回放（拦截高亮）
+agentguard bench        # 公开基准：病理场景 × 守卫打分
 ```
 
 ### `kguard run` — 受监督的无人值守运行

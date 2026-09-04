@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0 — 2026-09-04
+
+- 📺 **`agentguard watch` — live TUI dashboard**: all agent sessions across every installed harness on one screen, the interventions feed lighting up red as blocks land, quota windows with burn rate. Zero dependencies, raw ANSI, 500ms polling over the local state db. `q` to quit.
+- ⏪ **`agentguard replay`**: every supervised run's raw log rendered as an annotated timeline — calls, results, blocks (🔴), steers, turns. `--speed N` plays it back live.
+- 🏁 **`agentguard bench` — the public benchmark**: six scripted pathological scenarios (loop storm, no-gain spin, fake completion claims, thinking dominance, context pressure, step-cap) scored 0–100 against the guard. Fixture mode is free and deterministic; `--harness claude` drives a real CLI (observational). `--save` persists scoreboards for a recurring leaderboard.
+
+1.0 because the enforcement core is done: 8 behavioral detectors, 4 harnesses, supervised headless runs, feedback-driven calibration — and the guard passes its own crash tests (bench fixture suite in CI).
+
 ## 0.10.0 — 2026-09-02
 
 - ⚙️ **GitHub Action** (`uses: shidesheng0218/kimi-guard@v0`): one-step supervised agent runs in CI — job summary shows the full report (end reason, blocks by detector, token usage), blocks surface as PR annotations, exit 2 marks the step failed. `agentguard-version: local` mode lets the repo dogfood the action in its own CI.
