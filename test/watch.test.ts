@@ -3,6 +3,8 @@ import { renderDashboard, type WatchState } from "../src/watch/render.js";
 import { defaultConfig } from "../src/config.js";
 import { budgetSnapshot } from "../src/meter.js";
 
+const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
 function state(overrides?: Partial<WatchState>): WatchState {
   return {
     sessions: [],
@@ -20,7 +22,7 @@ describe("watch render (pure)", () => {
       blocks: [{ id: 1, session_id: "sess-abc-123", tool_name: "Grep", kind: "repeat", ts: Date.parse("2026-09-03T11:59:50Z"), feedback: null }],
     });
     const lines = renderDashboard(s, 100, 30);
-    const text = lines.join("\n");
+    const text = strip(lines.join("\n"));
     expect(text).toContain("BUDGET");
     expect(text).toContain("SESSIONS (1)");
     expect(text).toContain("sess-abc-123");
@@ -30,7 +32,7 @@ describe("watch render (pure)", () => {
   });
 
   it("empty state renders placeholders, no crash", () => {
-    const text = renderDashboard(state(), 80, 24).join("\n");
+    const text = strip(renderDashboard(state(), 80, 24).join("\n"));
     expect(text).toContain("no sessions recorded yet");
     expect(text).toContain("no interventions");
   });
