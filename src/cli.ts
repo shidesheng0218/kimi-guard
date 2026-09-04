@@ -253,6 +253,59 @@ program
     console.log(formatCalibrateReport(buildCalibrateReport()));
   });
 
+program
+  .command("watch")
+  .description("live dashboard: sessions, interventions and budget windows across all harnesses (q to quit)")
+  .action(async () => {
+    const { watch } = await import("./watch/index.js");
+    await watch();
+  });
+
+program
+  .command("replay")
+  .description("replay a recorded run as an annotated timeline (blocks highlighted)")
+  .argument("[runId]", "run id (default: the latest run)")
+  .option("--speed <n>", "playback speed multiplier (default: static print)")
+  .action(async (runId: string | undefined, opts: { speed?: string }) => {
+    const { listRuns, parseRunLog, renderTimeline, playTimeline } = await import("./replay.js");
+    const runs = listRuns();
+    if (runs.length === 0) {
+      console.log("no recorded runs yet — run one with: agentguard run ...");
+      return;
+    }
+    const id = runId ?? runs[0]!.runId;
+    if (!runs.some((r) => r.runId === id)) {
+      console.error(`unknown run ${id} — available: ${runs.slice(0, 5).map((r) => r.runId).join(", ")}`);
+      process.exitCode = 1;
+      return;
+    }
+    const events = parseRunLog(id);
+    if (opts.speed) {
+      await playTimeline(events, Number(opts.speed));
+    } else {
+      console.log(`agent-guard replay — ${id}\n`);
+      console.log(renderTimeline(events));
+    }
+  });
+
+program
+  .command("bench")
+  .description("run the public benchmark suite: scripted pathological agents vs the guard, scored")
+  .option("--harness <name>", "fixture (default, free) | kimi | claude (needs API key, observational)")
+  .option("--max-minutes <n>", "wall-clock cap per scenario", "2")
+  .option("--json", "print machine-readable results")
+  .option("--save", "save the scoreboard JSON under the guard home")
+  .action(async (opts: { harness?: string; maxMinutes: string; json?: boolean; save?: boolean }) => {
+    const { runBench, formatScoreboard } = await import("./bench/index.js");
+    const harness = (opts.harness ?? "fixture") as "fixture" | "kimi" | "claude";
+    const { results, total, reportPath } = await runBench({ harness, maxMinutes: Number(opts.maxMinutes), json: Boolean(opts.json), save: Boolean(opts.save) });
+    if (opts.json) console.log(JSON.stringify({ harness, total, results }, null, 2));
+    else {
+      console.log(formatScoreboard(results));
+      if (reportPath) console.log(`  saved: ${reportPath}`);
+    }
+  });
+
 const probe = program.command("probe").description("capture raw hook payloads for schema discovery");
 probe
   .command("on")
