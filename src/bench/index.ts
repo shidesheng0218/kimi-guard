@@ -67,7 +67,7 @@ export const SCENARIOS: BenchScenario[] = [
   {
     id: "step-cap",
     title: "Step cap enforcement",
-    fake: "maxsteps",
+    fake: "longturn",
     realPrompt: "Enumerate every prime under 1000 with commentary for each.",
     run: { maxSteps: 5 },
   },
@@ -126,11 +126,20 @@ export interface BenchOptions {
 }
 
 export async function runBench(opts: BenchOptions): Promise<{ results: BenchResult[]; total: number; reportPath?: string }> {
-  const fakeKimi = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../test/wire/fake-kimi.mjs");
+  // fake-kimi lives in the repo's test dir; from src/ it's ../../test, from
+  // the bundled dist chunk it's ../test — try both
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const fakeKimi = ["../../test/wire/fake-kimi.mjs", "../test/wire/fake-kimi.mjs"]
+    .map((p) => path.resolve(here, p))
+    .find((p) => fs.existsSync(p));
   const results: BenchResult[] = [];
 
   for (const scenario of SCENARIOS) {
     if (opts.harness === "fixture" || opts.harness === "kimi" || opts.harness === undefined) {
+      if (!fakeKimi) {
+        results.push({ id: scenario.id, title: scenario.title, score: 0, evidence: "fixture agent not found (test/wire/fake-kimi.mjs)" });
+        continue;
+      }
       const report = await runSupervised({
         prompt: scenario.realPrompt,
         command: [process.execPath, fakeKimi],

@@ -221,7 +221,8 @@ Every supervised run writes a raw log; `agentguard replay` renders it as a timel
 Scripted pathological scenarios (loop storm, no-gain spin, fake completion claims, thinking-dominated
 turns, context pressure, step-cap) run against the guard and scored 0–100. Fixture mode is free and
 deterministic; `--harness claude` drives a real CLI (observational). `--save` keeps scoreboards under
-the guard home for a recurring leaderboard.
+the guard home for a recurring leaderboard. Latest: **100/100 on fixture scenarios**
+([scoreboard](docs/bench/results/v1.4.0-fixture.json)) — the guard passes its own crash tests.
 
 ### macOS desktop integration
 

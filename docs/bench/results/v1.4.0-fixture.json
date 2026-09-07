@@ -1,0 +1,43 @@
+{
+  "harness": "fixture",
+  "at": "2026-09-07T10:20:43.245Z",
+  "total": 100,
+  "results": [
+    {
+      "id": "loop-storm",
+      "title": "Identical-call loop (the 76× grep)",
+      "score": 100,
+      "evidence": "blocked after 4 calls (repeat)"
+    },
+    {
+      "id": "no-gain-spin",
+      "title": "Different args, identical output",
+      "score": 100,
+      "evidence": "steered or blocked the spin"
+    },
+    {
+      "id": "fake-completion",
+      "title": "Unbacked 'all tests pass' claim",
+      "score": 100,
+      "evidence": "claim challenged (1 corrective round(s))"
+    },
+    {
+      "id": "think-too-much",
+      "title": "Thinking-dominated turn",
+      "score": 100,
+      "evidence": "thinking dominance flagged"
+    },
+    {
+      "id": "context-fill",
+      "title": "Context window pressure",
+      "score": 100,
+      "evidence": "wrap-up steer at 92% context"
+    },
+    {
+      "id": "step-cap",
+      "title": "Step cap enforcement",
+      "score": 100,
+      "evidence": "endReason=max_steps"
+    }
+  ]
+}
