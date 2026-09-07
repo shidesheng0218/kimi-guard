@@ -64,8 +64,11 @@ agent-guard 不是预设包，而是一个**运行时行为分析与执行引擎
 npm i -g @shidesheng0218/agentguard
 agentguard install    # 自动探测并接管已装的 harness
                       #（Kimi Code: ~/.kimi-code/config.toml · Claude Code: ~/.claude/settings.json）
+agentguard canary     # 活性验证：现场展示守卫拦下一次合成重复调用
 agentguard doctor     # 自检
 ```
+
+`canary` 通过**真实 hook 路径**（与 Agent CLI 调用的同一个二进制）发出 3 次相同调用 + 1 次重复提议，并展示第 4 次被拦截以及模型收到的完整阻断理由——随后清除合成流量，不污染你的拦截统计。没拦住说明 hooks 没接好，`doctor` 会告诉你原因。
 
 需要 Node >= 22.13。安装后重启对应 Agent CLI（或 `/reload`）生效。
 
@@ -91,7 +94,8 @@ kguard install          # 写入 hook 规则（幂等，首次自动备份）
 kguard uninstall        # 移除托管区块
 kguard status           # 调用量、干预记录、会话、预算窗口 + 干预质量（误报率）
 kguard budget           # 配额计量快照：窗口、燃烧率、耗尽预测
-kguard blocks [-n N]    # 最近的拦截记录（带 id）
+kguard blocks [-n N]    # 最近的拦截记录（含每次拦截的完整原因）
+agentguard canary       # 活性验证：现场展示守卫拦下一次合成重复调用
 kguard feedback fp|tp <id>  # 标记误报/确认拦截——喂给检测器校准
 kguard report [--json] [--sessions]  # 匿名聚合导出（含跨会话重复模式）
 agentguard calibrate    # 根据你的误报反馈建议阈值调整（只打印 TOML，不改配置）

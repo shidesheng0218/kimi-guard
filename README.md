@@ -156,7 +156,8 @@ kguard install          # add hook rules to detected agent CLIs (idempotent)
 kguard uninstall        # remove the managed hook block
 kguard status           # calls, interventions, sessions, budget windows + intervention quality
 kguard budget           # quota metering snapshot: windows, burn rate, projection
-kguard blocks [-n N]    # recent blocks with ids
+kguard blocks [-n N]    # recent blocks with ids + the exact reason each fired
+agentguard canary       # proof-of-life: shows the guard blocking a synthetic repeat, live
 kguard feedback fp|tp <id>  # mark a block false-positive / confirmed — calibrates detectors
 kguard report [--json] [--sessions]  # anonymized aggregate (+ cross-session patterns)
 agentguard calibrate    # suggest threshold tweaks from your feedback (prints TOML)
