@@ -3,7 +3,7 @@ import path from "node:path";
 import pc from "picocolors";
 import { Command } from "commander";
 import { version } from "./version.js";
-import { loadConfig, writeConfigTemplate } from "./config.js";
+import { loadConfig, writeConfigTemplate, serializeConfig, importConfig } from "./config.js";
 import { installHooks, uninstallHooks } from "./installer.js";
 import { installClaudeHooks, uninstallClaudeHooks } from "./harness/claude.js";
 import { installCodexHooks, uninstallCodexHooks } from "./harness/codex.js";
@@ -20,6 +20,8 @@ import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
 import { buildCalibrateReport, formatCalibrateReport } from "./calibrate.js";
 import { menubarText, installMenubar } from "./menubar.js";
+import { notifyDesktop } from "./notify.js";
+import { buildDigest, formatDigest } from "./digest.js";
 
 const program = new Command();
 
@@ -300,6 +302,21 @@ program
   });
 
 program
+  .command("digest")
+  .description("weekly value summary: calls, interventions, estimated requests saved, quota, calibration hints")
+  .option("-w, --weeks <n>", "how many weeks to summarize", "1")
+  .option("--notify", "also send the summary as a macOS desktop notification")
+  .option("--json", "print machine-readable digest")
+  .action((opts: { weeks: string; notify?: boolean; json?: boolean }) => {
+    const d = buildDigest(Number(opts.weeks));
+    if (opts.json) console.log(JSON.stringify(d, null, 2));
+    else console.log(formatDigest(d));
+    if (opts.notify) {
+      notifyDesktop("🛡️ agent-guard weekly digest", `${d.calls} calls, ${d.blocksByKind.reduce((a, k) => a + k.n, 0)} interventions, ~${d.estSaved} requests saved`);
+    }
+  });
+
+program
   .command("watch")
   .description("live dashboard: sessions, interventions and budget windows across all harnesses (q to quit)")
   .action(async () => {
@@ -402,8 +419,36 @@ const cfgCmd = program.command("config").description("manage the guard config.to
 cfgCmd
   .command("init")
   .description("create the config file with documented defaults")
+  .option("--project", "write a repo-level .agentguard.toml (team-shared rules, checked into the repo) instead of the user config")
+  .action((opts: { project?: boolean }) => {
+    const target = opts.project ? path.join(process.cwd(), ".agentguard.toml") : userConfigPath();
+    if (writeConfigTemplate(target)) {
+      console.log(`✓ created ${target}`);
+      if (opts.project) console.log("  note: review exemptions before committing — they are local preferences, not necessarily team rules");
+    } else {
+      console.log(`already exists: ${target}`);
+    }
+  });
+
+cfgCmd
+  .command("export")
+  .description("print the effective config (defaults+profile+user+project merged) as shareable TOML")
   .action(() => {
-    console.log(writeConfigTemplate() ? `✓ created ${userConfigPath()}` : `already exists: ${userConfigPath()}`);
+    console.log(serializeConfig(loadConfig()));
+  });
+
+cfgCmd
+  .command("import <file>")
+  .description("merge a shared config file into your user config (backup first, imported keys win)")
+  .action((file: string) => {
+    const r = importConfig(file);
+    if (!r.merged) {
+      console.error(`✗ ${r.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    if (r.backupPath) console.log(`✓ backup: ${r.backupPath}`);
+    console.log(`✓ merged ${file} → ${userConfigPath()}`);
   });
 cfgCmd
   .command("path")

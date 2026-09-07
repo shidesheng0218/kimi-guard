@@ -237,6 +237,19 @@ export function setBlockFeedback(id: number, verdict: "fp" | "tp"): boolean {
   return Number(info.changes) > 0;
 }
 
+/** Kind-scoped block counts in a time window (for digest/ROI). */
+export function blockKindStatsSince(sinceTs: number): Array<{ kind: string; n: number }> {
+  return openDb()
+    .prepare("SELECT kind, COUNT(*) AS n FROM blocks WHERE ts >= ? GROUP BY kind ORDER BY n DESC")
+    .all(sinceTs) as unknown as Array<{ kind: string; n: number }>;
+}
+
+/** Tool-call count in a time window. */
+export function countCallsSince(sinceTs: number): number {
+  const row = openDb().prepare("SELECT COUNT(*) AS n FROM calls WHERE ts >= ?").get(sinceTs) as { n: number };
+  return Number(row?.n ?? 0);
+}
+
 export interface BlockKindStat {
   kind: string;
   n: number;

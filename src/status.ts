@@ -7,7 +7,8 @@ import { hooksInstalled } from "./installer.js";
 import { claudeHooksInstalled } from "./harness/claude.js";
 import { codexHooksInstalled } from "./harness/codex.js";
 import { geminiHooksInstalled } from "./harness/gemini.js";
-import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, crossSessionRepeats, type BlockKindStat } from "./store.js";
+import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, blockKindStatsSince, crossSessionRepeats, type BlockKindStat } from "./store.js";
+import { estSavedFromWindow } from "./estSaved.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
@@ -80,6 +81,7 @@ export function buildGuardReport(cfg = loadConfig(), opts?: { sessions?: boolean
     calls24h: s.calls24h,
     blocks24h: s.blocks24h.reduce((acc, b) => acc + b.n, 0),
     detectors,
+    estSaved: estSavedFromWindow(blockKindStatsSince(Date.now() - 7 * 86_400_000)),
     budget: {
       plan: cfg.budget.plan,
       precise: snap.precise,
@@ -131,12 +133,15 @@ export function cmdStatus(): void {
   const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
   console.log(`${pc.bold(pc.magentaBright("◆ agent-guard status"))} ${pc.dim(`(state: ${stateDbPath()})`)}`);
   console.log(`  ${pc.dim("profile:")}             ${pc.bold(cfg.profile)}`);
+  if (cfg.projectConfigPath) console.log(`  ${pc.dim("project config:")}     ${cfg.projectConfigPath}`);
   console.log(`  ${pc.dim("last activity:")}       ${dt}`);
   console.log(`  ${pc.dim("last hook activity:")}  ${lastHook}`);
   if (normalizeMisses > 0) {
     console.log(`  ${pc.yellow("!")} payload normalization misses: ${normalizeMisses} — possible upstream schema drift; run 'kguard probe on' and compare 'kguard doctor' field coverage`);
   }
   console.log(`  ${pc.dim("tool calls (24h):")}    ${s.calls24h}`);
+  const saved7d = estSavedFromWindow(blockKindStatsSince(Date.now() - 7 * 86_400_000));
+  if (saved7d > 0) console.log(`  ${pc.dim("est. saved (7d):")}     ${pc.green(`~${saved7d} requests`)} ${pc.dim("(heuristic)")}`);
   const parts24 = s.blocks24h.map((b) => `${b.kind}×${b.n}`).join(", ");
   console.log(`  ${pc.dim("interventions (24h):")} ${parts24 || "none"}`);
   const anyInstalled =

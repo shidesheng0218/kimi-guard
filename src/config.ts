@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { userConfigPath } from "./paths.js";
 import { toolDefaultsFor, type HarnessName } from "./toolsets.js";
@@ -9,6 +10,8 @@ export interface GuardConfig {
   harness: HarnessName;
   /** active threshold profile (balanced | strict | chill) */
   profile: string;
+  /** repo-level config that overrode user config, if any was found walking up from cwd */
+  projectConfigPath?: string;
   /** canonical tool-name taxonomy — every tool-name classifier reads through here */
   tools: {
     edit: string[];
@@ -342,26 +345,55 @@ function strArrOrNull(v: unknown): string[] | null {
   return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length > 0 ? (v as string[]) : null;
 }
 
+function readTomlData(configPath: string): Record<string, unknown> | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(configPath, "utf8");
+  } catch {
+    return null;
+  }
+  try {
+    return parseToml(raw) as Record<string, unknown>;
+  } catch (err) {
+    process.stderr.write(`[agent-guard] failed to parse ${configPath}: ${(err as Error).message}\n`);
+    return null;
+  }
+}
+
+/** Walk up from a directory looking for a repo-level `.agentguard.toml` (team-shared rules). */
+export function findProjectConfig(fromDir = process.cwd()): string | null {
+  let dir = path.resolve(fromDir);
+  for (;;) {
+    const candidate = path.join(dir, ".agentguard.toml");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 export function loadConfig(configPath = userConfigPath(), harness: HarnessName = "kimi", profileOverride?: string): GuardConfig {
   const cfg: GuardConfig = structuredClone(defaultConfig);
   cfg.harness = harness;
   if (harness === "claude") applyClaudeDefaults(cfg);
   if (harness === "codex") applyCodexDefaults(cfg);
   if (harness === "gemini") applyGeminiDefaults(cfg);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(configPath, "utf8");
-  } catch {
-    return cfg;
-  }
-  let data: Record<string, unknown>;
-  try {
-    data = parseToml(raw) as Record<string, unknown>;
-  } catch (err) {
-    process.stderr.write(`[agent-guard] failed to parse ${configPath}: ${(err as Error).message}\n`);
-    return cfg;
-  }
 
+  // Layer order: defaults < harness < profile < user config < project config (.agentguard.toml)
+  const data = readTomlData(configPath);
+  if (data) applyConfigData(cfg, data, profileOverride);
+  const proj = findProjectConfig();
+  if (proj && proj !== configPath) {
+    const pdata = readTomlData(proj);
+    if (pdata) {
+      cfg.projectConfigPath = proj;
+      applyConfigData(cfg, pdata);
+    }
+  }
+  return cfg;
+}
+
+function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profileOverride?: string): void {
   // Threshold profile overlay: sits between harness defaults and the user's
   // explicit keys (explicit keys always win). Priority: flag > env > file.
   const profileName =
@@ -502,7 +534,6 @@ export function loadConfig(configPath = userConfigPath(), harness: HarnessName =
   // keep the deprecated mirror fields consistent with the resolved taxonomy
   cfg.verify.shellTools = cfg.tools.shell;
   cfg.churn.tools = cfg.tools.edit;
-  return cfg;
 }
 
 export function writeConfigTemplate(configPath = userConfigPath()): boolean {
@@ -510,4 +541,72 @@ export function writeConfigTemplate(configPath = userConfigPath()): boolean {
   fs.mkdirSync(configPath.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
   fs.writeFileSync(configPath, CONFIG_TEMPLATE, "utf8");
   return true;
+}
+
+/** Serialize the effective config to TOML (for `config export` — share/check in). */
+export function serializeConfig(cfg: GuardConfig): string {
+  const lines: string[] = ["# agent-guard effective config (exported)"];
+  const sections: string[] = [];
+  const walk = (obj: Record<string, unknown>, prefix: string[]): void => {
+    const primitives: string[] = [];
+    for (const [k, v] of Object.entries(obj)) {
+      if (Array.isArray(v)) primitives.push(`${k} = ${JSON.stringify(v)}`);
+      else if (typeof v === "number" || typeof v === "boolean") primitives.push(`${k} = ${v}`);
+      else if (typeof v === "string") primitives.push(`${k} = ${JSON.stringify(v)}`);
+    }
+    if (primitives.length > 0) {
+      if (prefix.length === 0) lines.push(...primitives);
+      else sections.push(`[${prefix.join(".")}]\n${primitives.join("\n")}`);
+    }
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== null && typeof v === "object" && !Array.isArray(v)) walk(v as Record<string, unknown>, [...prefix, k]);
+    }
+  };
+  const { harness, projectConfigPath, ...rest } = cfg as unknown as Record<string, unknown>;
+  walk(rest, []);
+  return [...lines, ...sections].join("\n") + "\n";
+}
+
+function deepMerge(base: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(incoming)) {
+    const cur = out[k];
+    out[k] = v !== null && typeof v === "object" && !Array.isArray(v) && cur !== null && typeof cur === "object" && !Array.isArray(cur)
+      ? deepMerge(cur as Record<string, unknown>, v as Record<string, unknown>)
+      : v;
+  }
+  return out;
+}
+
+/** Merge an imported config file into the user config file (backup first, import wins per leaf). */
+export function importConfig(importPath: string, configPath = userConfigPath()): { merged: boolean; backupPath?: string; error?: string } {
+  const incoming = readTomlData(importPath);
+  if (incoming === null) return { merged: false, error: `cannot parse ${importPath}` };
+  const existing = readTomlData(configPath) ?? {};
+  const merged = deepMerge(existing, incoming);
+  const backupPath = fs.existsSync(configPath) ? `${configPath}.import.bak` : undefined;
+  if (backupPath) fs.copyFileSync(configPath, backupPath);
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const lines: string[] = ["# agent-guard configuration (merged by config import)"];
+  const sections: string[] = [];
+  for (const [k, v] of Object.entries(merged)) {
+    if (typeof v !== "object" || v === null) lines.push(`${k} = ${typeof v === "string" ? JSON.stringify(v) : v}`);
+  }
+  const emit = (obj: Record<string, unknown>, prefix: string[]): void => {
+    const primitives: string[] = [];
+    for (const [k, v] of Object.entries(obj)) {
+      if (Array.isArray(v)) primitives.push(`${k} = ${JSON.stringify(v)}`);
+      else if (typeof v === "number" || typeof v === "boolean") primitives.push(`${k} = ${v}`);
+      else if (typeof v === "string") primitives.push(`${k} = ${JSON.stringify(v)}`);
+    }
+    if (primitives.length > 0) sections.push(`[${prefix.join(".")}]\n${primitives.join("\n")}`);
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== null && typeof v === "object" && !Array.isArray(v)) emit(v as Record<string, unknown>, [...prefix, k]);
+    }
+  };
+  for (const [k, v] of Object.entries(merged)) {
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) emit(v as Record<string, unknown>, [k]);
+  }
+  fs.writeFileSync(configPath, [...lines, ...sections].join("\n") + "\n", "utf8");
+  return { merged: true, backupPath };
 }

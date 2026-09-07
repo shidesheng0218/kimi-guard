@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0 — 2026-09-07
+
+- 📮 **`agentguard digest`** — weekly value summary: calls, interventions by detector, **estimated requests saved** (documented heuristic), quota windows, calibration hints. `--notify` sends it as a desktop notification you can schedule from your own cron/launchd. The answer to "is the guard actually doing anything for me?" — every week, on your own scheduler.
+- 💰 **`estSaved` everywhere**: the same honest estimate now appears in `agentguard status` (7d) and `agentguard report --json`.
+- 🏗️ **Project config** `.agentguard.toml`: repo-level rules override user config (`defaults < profile < user < project`) — team-shared thresholds/exemptions checked into the repo. `agentguard config init --project` scaffolds it; status shows when a project config is active.
+- 📦 **`agentguard config export` / `import <file>`**: tuned config becomes a portable, shareable asset — export merges all layers into shareable TOML, import merges into your user config with a backup first.
+
 ## 1.3.0 — 2026-09-04
 
 - 🐤 **`agentguard canary`** — proof-of-life: fires synthetic repeated calls through the real hook pipeline and shows the 4th being blocked with the exact reason the model receives. Canary traffic is purged afterwards, so intervention stats stay honest. The answer to "is the guard even working?" in 10 seconds.

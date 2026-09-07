@@ -238,6 +238,17 @@ And a menu-bar plugin for [xbar](https://xbarapp.com/)/[SwiftBar](https://swiftb
 writes a per-minute plugin that shows quota windows and the latest block; `agentguard menubar` prints the
 plugin output directly (that's all the protocol is — a script that prints).
 
+### Making the value visible (retention by design)
+
+- **`agentguard digest`** — weekly summary: calls, interventions by detector, **estimated requests saved**
+  (heuristic), quota windows, calibration hints. `digest --notify` also sends it as a desktop notification —
+  schedule it from your own cron/launchd and the guard stays daemon-free.
+- **`agentguard status` / `report --json`** show the same `estSaved` estimate so every block is a visible win.
+- **Project config**: a `.agentguard.toml` at your repo root overrides user config (`defaults < profile < user
+  < project`) — team-shared rules checked into the repo. `agentguard config init --project` scaffolds it.
+- **`agentguard config export` / `import <file>`** — your tuned thresholds and exemptions become a portable,
+  shareable asset (backup before every import).
+
 ### Use in CI (GitHub Action)
 
 ```yaml
