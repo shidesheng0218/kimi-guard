@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/shidesheng0218/kimi-guard/ci.yml?style=flat-square&label=CI)](/.github/workflows/ci.yml)
 
-<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg?v=0.8.1" alt="agent-guard banner" width="100%"/>
+<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg?v=1.3.0" alt="agent-guard banner" width="100%"/>
 
 **[English](README.md) · [中文文档](docs/README.zh-CN.md)**
 

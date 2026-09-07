@@ -12,7 +12,7 @@
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg?v=0.8.1" alt="agent-guard banner" width="100%"/>
+<img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg?v=1.3.0" alt="agent-guard banner" width="100%"/>
 
 ![agent-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif?v=0.8.1)
 
