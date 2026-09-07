@@ -22,18 +22,20 @@ Sleep 2200ms
 Type "agentguard install"
 Enter
 Sleep 1400ms
+Type "agentguard canary"
+Enter
+Sleep 6500ms
 Type "agentguard doctor"
 Enter
-Sleep 2000ms
-Type 'export DEMO="env FAKE_SCENARIO=loop node test/wire/fake-kimi.mjs"'
+Sleep 2200ms
+Type 'agentguard run "find all TODO markers" --exec env FAKE_SCENARIO=loop FAKE_STEP_DELAY_MS=1200 node test/wire/fake-kimi.mjs > /dev/null 2>&1 &'
 Enter
-Sleep 200ms
-Type 'agentguard run "find all TODO markers" --exec $DEMO'
+Sleep 1200ms
+Type "agentguard watch"
 Enter
-Sleep 3500ms
-Type "agentguard status"
+Sleep 8000ms
+Type "q"
+Sleep 600ms
+Type "agentguard replay"
 Enter
 Sleep 2600ms
-Type "agentguard budget"
-Enter
-Sleep 1500ms

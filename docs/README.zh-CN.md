@@ -14,7 +14,7 @@
 
 <img src="https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/banner.svg?v=1.3.0" alt="agent-guard banner" width="100%"/>
 
-![agent-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif?v=0.8.1)
+![agent-guard demo](https://raw.githubusercontent.com/shidesheng0218/kimi-guard/main/assets/demo.gif?v=1.3.0)
 
 *真实终端演示：安装 → 自检 → 受监督运行中熔断器拦下一个循环调用 → 实时状态与预算面板。由 [vhs](https://github.com/charmbracelet/vhs) 从真实命令录制（[demo.tape](../assets/demo.tape)）。*
 
