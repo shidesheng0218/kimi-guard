@@ -1,16 +1,20 @@
-# X thread draft
+# X thread draft (v1.4.0)
 
-1/ My coding agent ran the same grep 76 times in a row during a CI run and ate my entire 5h quota. Nothing stopped it. So I built the thing that does: agent-guard 🛡️ (open source)
+1/ My coding agent ran the same grep 76 times in a headless CI run and burned my 5-hour quota. Nothing stopped it.
 
-2/ It's a behavior guard, not a permission checker. It catches the *patterns* of a stuck agent: repeated identical calls, A→B→A cycles, identical outputs from different queries, file edit thrashing, "exploring forever, never writing".
+So I built the thing that does: agent-guard 🛡️ (open source)
 
-3/ Intervention is a ladder, not a brick wall: warn in context → block with a corrective reason → kill switch that orders the agent to summarize and stop. If the guard itself breaks, the agent keeps working (fail-open by design).
+2/ It's a behavior guard, not a permission checker. It catches the *patterns* of a stuck agent: repeated identical calls, A→B→A cycles, identical outputs from different args, file edit thrashing, read-only exploration streaks.
 
-4/ My favorite part: the completion gate. Agent says "all tests pass"? Check the recorded command history. No evidence → corrective round. Claims must be earned.
+3/ Intervention is a ladder, not a brick wall: warn in context → block with a corrective reason → kill switch that orders the agent to summarize and stop. Fail-open by design: if the guard itself breaks, the agent keeps working.
 
-5/ Headless/CI mode: `agentguard run` supervises the whole run — hard caps, kill switch, auto-resume with a checkpoint of everything it already learned. Exit code 2 when it intervened. Perfect for cron.
+4/ The best part? Proving it works takes 10 seconds.
 
-6/ Works on Kimi Code CLI, Claude Code and Codex CLI via their hook systems. Zero daemon, zero proxy, local SQLite only.
+`agentguard canary` fires synthetic repeats through the real hook pipeline and shows the 4th being blocked, with the exact reason the model sees.
+
+5/ It also has a crash-test suite (`agentguard bench`), a flight recorder (`agentguard replay`), a live TUI (`agentguard watch`), and a weekly digest that tells you how many requests it saved you.
+
+6/ Works on Kimi Code, Claude Code, Codex and Gemini CLI via their hooks. Also a GitHub Action for CI. Zero daemon, zero proxy, local SQLite only.
 
 npm i -g @shidesheng0218/agentguard
-https://github.com/shidesheng0218/kimi-guard
+github.com/shidesheng0218/kimi-guard
