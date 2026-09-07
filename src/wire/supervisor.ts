@@ -387,7 +387,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
 
     const block = analysis.findings.find((f) => f.severity === "block");
     if (block) {
-      recordBlock(sessionId(), toolName, block.kind);
+      recordBlock(sessionId(), toolName, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
       report.blocks.push({ tool: toolName, kind: block.kind, message: block.message, ts: Date.now() });
       if (cfg.notify.enabled && cfg.notify.onBlock) {
         notifyDesktop("🛡️ agent-guard", `blocked ${block.kind} on ${toolName}`);
@@ -447,10 +447,17 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
               const vote = await castVetoVote(ctx, cfg.verify.veto, env);
               if (vote.vetoed) {
                 report.vetoes++;
-                recordEvent(sessionId(), "veto", { claims: claims.length, raw: vote.raw });
+                recordEvent(sessionId(), "veto", {
+                  claims: claims.length,
+                  model: vote.model,
+                  elapsedMs: vote.elapsedMs,
+                  promptChars: vote.promptChars,
+                  maxOutputTokens: vote.maxOutputTokens,
+                  raw: vote.raw,
+                });
                 break;
               }
-              if (vote.error) recordEvent(sessionId(), "veto_error", { error: vote.error });
+              if (vote.error) recordEvent(sessionId(), "veto_error", { error: vote.error, model: vote.model, elapsedMs: vote.elapsedMs });
             }
             report.verifyRounds++;
             report.endReason = "verify";

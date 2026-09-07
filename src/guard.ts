@@ -86,7 +86,7 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       if (!cfg.verify.enabled || !cfg.verify.blockOnNoEvidence) return { code: 0 };
       if (!hasRecentEdits(sessionId, cfg, now)) return { code: 0 };
       if (hasEvidence(sessionId, cfg, now)) return { code: 0 };
-      const id = recordBlock(sessionId, "Stop", "verify", now);
+      const id = recordBlock(sessionId, "Stop", "verify", now, HOOKS_STOP_BLOCK_REASON);
       return { code: 2, stderr: HOOKS_STOP_BLOCK_REASON + feedbackHint(id) };
     }
     case "UserPromptSubmit": {
@@ -163,7 +163,7 @@ function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload,
     const kind = killSwitch
       ? "killSwitch"
       : (analysis.findings.find((f) => f.severity === "block")?.kind ?? "unknown");
-    const id = recordBlock(sessionId, call.tool, kind, now);
+    const id = recordBlock(sessionId, call.tool, kind, now, decision.blockReason ?? null);
     if (cfg.notify.enabled && (killSwitch ? cfg.notify.onKillSwitch : cfg.notify.onBlock)) {
       notifyDesktop("🛡️ agent-guard", `${killSwitch ? "kill switch — session locked" : `blocked ${kind} on ${call.tool}`}`, { sound: killSwitch });
     }

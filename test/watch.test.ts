@@ -19,7 +19,7 @@ describe("watch render (pure)", () => {
   it("renders the three panels with data", () => {
     const s = state({
       sessions: [{ session_id: "sess-abc-123", last_ts: Date.parse("2026-09-03T11:59:30Z"), n: 42 }],
-      blocks: [{ id: 1, session_id: "sess-abc-123", tool_name: "Grep", kind: "repeat", ts: Date.parse("2026-09-03T11:59:50Z"), feedback: null }],
+      blocks: [{ id: 1, session_id: "sess-abc-123", tool_name: "Grep", kind: "repeat", ts: Date.parse("2026-09-03T11:59:50Z"), feedback: null, reason: null }],
     });
     const lines = renderDashboard(s, 100, 30);
     const text = strip(lines.join("\n"));
@@ -48,7 +48,7 @@ describe("watch render (pure)", () => {
 
   it("respects the terminal height", () => {
     const s = state({
-      blocks: Array.from({ length: 50 }, (_, i) => ({ id: i, session_id: "s", tool_name: "Grep", kind: "repeat", ts: 0, feedback: null })),
+      blocks: Array.from({ length: 50 }, (_, i) => ({ id: i, session_id: "s", tool_name: "Grep", kind: "repeat", ts: 0, feedback: null, reason: null })),
     });
     expect(renderDashboard(s, 80, 15)).toHaveLength(15);
   });

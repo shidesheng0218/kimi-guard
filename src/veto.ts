@@ -80,6 +80,11 @@ export interface VoteResult {
   vetoed: boolean;
   raw?: string;
   error?: string;
+  /** cost transparency: which model, how long, how big the prompt was */
+  model?: string;
+  elapsedMs?: number;
+  promptChars?: number;
+  maxOutputTokens?: number;
 }
 
 /**
@@ -101,6 +106,9 @@ export async function castVetoVote(
 
   const { baseUrl, model } = vetoBaseUrls(cfg, env);
   const key = env.KIMI_GUARD_VETO_API_KEY!.trim();
+  const prompt = buildVetoPrompt(ctx);
+  const started = Date.now();
+  const meta = { model, promptChars: prompt.length, maxOutputTokens: 8 };
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -110,18 +118,19 @@ export async function castVetoVote(
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content: buildVetoPrompt(ctx) }],
+        messages: [{ role: "user", content: prompt }],
         max_tokens: 8,
         temperature: 0,
         stream: false,
       }),
       signal: AbortSignal.timeout(cfg.timeoutMs),
     });
-    if (!res.ok) return { vetoed: false, error: `http ${res.status}` };
+    const elapsedMs = Date.now() - started;
+    if (!res.ok) return { vetoed: false, error: `http ${res.status}`, ...meta, elapsedMs };
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const raw = (data.choices?.[0]?.message?.content ?? "").trim();
-    return { vetoed: /^VETO:\s*yes\b/i.test(raw), raw };
+    return { vetoed: /^VETO:\s*yes\b/i.test(raw), raw, ...meta, elapsedMs };
   } catch (err) {
-    return { vetoed: false, error: (err as Error).message };
+    return { vetoed: false, error: (err as Error).message, ...meta, elapsedMs: Date.now() - started };
   }
 }

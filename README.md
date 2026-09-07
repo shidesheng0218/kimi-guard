@@ -70,8 +70,14 @@ Everything is **fail-open**: if agent-guard itself errors, the agent keeps worki
 npm i -g @shidesheng0218/agentguard
 agentguard install    # writes managed hooks into every detected harness
                       # (Kimi Code: ~/.kimi-code/config.toml · Claude Code: ~/.claude/settings.json)
+agentguard canary     # proof-of-life: shows the guard blocking a synthetic repeat, live
 agentguard doctor     # verify
 ```
+
+`canary` fires 3 identical calls + 1 proposed repeat through the **real hook path** (same binary the
+agent CLI invokes) and shows the 4th being blocked with the exact reason the model receives — then purges
+its synthetic traffic, so your intervention stats stay honest. If it doesn't block, hooks aren't wired
+(`doctor` tells you why).
 
 Requires Node >= 22.13. Restart the agent CLI (or `/reload`) after installing.
 

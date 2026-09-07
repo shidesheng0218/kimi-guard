@@ -93,6 +93,19 @@ export function buildGuardReport(cfg = loadConfig(), opts?: { sessions?: boolean
   return report;
 }
 
+/**
+ * Is the guard silently inert? Hooks installed but no activity while an agent
+ * CLI runs — the classic "CLI updated and broke the payload schema" failure.
+ */
+export function stalenessWarning(lastHookTs: number, now: number, hooksInstalledAny: boolean, agentRunning: boolean): string | null {
+  if (!hooksInstalledAny) return null;
+  if (lastHookTs === 0) return "hooks installed but no hook activity recorded yet — the guard has never fired in this state db";
+  if (now - lastHookTs > 24 * 3_600_000 && agentRunning) {
+    return "hooks installed but silent for over 24h while an agent CLI is running — the guard may be silently inert (reinstall: agentguard install)";
+  }
+  return null;
+}
+
 /** Best-effort detection of a running agent CLI process (unix only). */
 function agentProcessRunning(): boolean {
   if (process.platform !== "darwin" && process.platform !== "linux") return false;
@@ -126,6 +139,10 @@ export function cmdStatus(): void {
   console.log(`  ${pc.dim("tool calls (24h):")}    ${s.calls24h}`);
   const parts24 = s.blocks24h.map((b) => `${b.kind}×${b.n}`).join(", ");
   console.log(`  ${pc.dim("interventions (24h):")} ${parts24 || "none"}`);
+  const anyInstalled =
+    hooksInstalled(detectKimiConfig().path) || claudeHooksInstalled() || codexHooksInstalled() || geminiHooksInstalled();
+  const staleWarn = stalenessWarning(lastHookTs, Date.now(), anyInstalled, agentProcessRunning());
+  if (staleWarn) console.log(`  ${pc.red("!")} ${pc.red(staleWarn)}`);
   const stats = blockKindStats();
   const withFeedback = stats.filter((k) => k.fp + k.tp > 0);
   if (withFeedback.length > 0) {

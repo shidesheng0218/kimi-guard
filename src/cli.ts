@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import path from "node:path";
+import pc from "picocolors";
 import { Command } from "commander";
 import { version } from "./version.js";
 import { loadConfig, writeConfigTemplate } from "./config.js";
@@ -177,6 +179,48 @@ program
   });
 
 program
+  .command("canary")
+  .description("proof-of-life: fire synthetic repeated calls through the real hook pipeline and show the guard blocking")
+  .option("--harness <name>", "harness to verify (default: kimi)", "kimi")
+  .action(async (opts: { harness: string }) => {
+    const harness = ["claude", "codex", "gemini"].includes(opts.harness) ? (opts.harness as "claude" | "codex" | "gemini") : "kimi";
+    const session = `canary-${Date.now()}`;
+    const payload = JSON.stringify({ session_id: session, tool_name: "Grep", tool_input: { pattern: "canary-signal" } });
+    const { spawnSync } = await import("node:child_process");
+    const { purgeSession } = await import("./store.js");
+    // same binary the agent CLI invokes: dist/cli.js in prod; the .ts source via tsx in dev
+    const script = path.resolve(process.argv[1]!);
+    const repoRoot = path.dirname(path.dirname(script));
+    const hookArgs = script.endsWith(".ts") ? [path.join(repoRoot, "node_modules", ".bin", "tsx"), script] : [script];
+    const fire = (event: string) =>
+      spawnSync(process.execPath, [...hookArgs, "hook", event, "--harness", harness], { input: payload, encoding: "utf8", timeout: 15000, cwd: repoRoot });
+
+    console.log(`canary: firing 3 identical PostToolUse + 1 PreToolUse through the real hook path (${session})…`);
+    try {
+      for (let i = 1; i <= 3; i++) {
+        const r = fire("PostToolUse");
+        if (r.status !== 0) {
+          console.error(`✗ PostToolUse #${i} exited ${r.status} — hook pipeline is unhealthy; run: agentguard doctor`);
+          process.exitCode = 1;
+          return;
+        }
+        console.log(`  PostToolUse #${i} → exit 0`);
+      }
+      const pre = fire("PreToolUse");
+      if (pre.status === 2) {
+        console.log(`✓ guard is LIVE — the 4th identical call was blocked (exit 2)`);
+        console.log(`  ${pc.dim((pre.stderr ?? "").split("\n")[0] ?? "")}`);
+      } else {
+        console.error(`✗ expected a block (exit 2), got exit ${pre.status ?? "?"} — hooks may not be wired correctly; run: agentguard doctor`);
+        process.exitCode = 1;
+      }
+    } finally {
+      // canary traffic is synthetic — keep the real intervention stats honest
+      purgeSession(session);
+    }
+  });
+
+program
   .command("blocks")
   .description("list recent guard blocks (with ids for feedback)")
   .option("-n, --last <n>", "how many blocks to show", "20")
@@ -189,6 +233,7 @@ program
     for (const r of rows) {
       const fb = r.feedback ? ` [${r.feedback === "fp" ? "FALSE POSITIVE" : "confirmed"}]` : "";
       console.log(`#${r.id}  ${new Date(r.ts).toISOString()}  ${r.kind}  ${r.tool_name}  session=${r.session_id.slice(0, 16)}${fb}`);
+      if (r.reason) console.log(`      ${pc.dim(r.reason.slice(0, 140))}`);
     }
     console.log(`\nmark a false positive: kguard feedback fp <id>   (confirmed: kguard feedback tp <id>)`);
   });

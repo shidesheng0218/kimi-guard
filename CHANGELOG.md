@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 — 2026-09-04
+
+- 🐤 **`agentguard canary`** — proof-of-life: fires synthetic repeated calls through the real hook pipeline and shows the 4th being blocked with the exact reason the model receives. Canary traffic is purged afterwards, so intervention stats stay honest. The answer to "is the guard even working?" in 10 seconds.
+- 🧾 **Block reasons are persisted** (schema v5): `agentguard blocks` now shows *why* each block fired, not just which detector. The reason the model received is the reason you can audit.
+- 🚨 **Silent-inert warning promoted into `agentguard status`**: hooks installed but silent 24h+ while an agent CLI is running → red warning line (previously only visible via `doctor`).
+- 💰 **Veto cost logging**: every LLM veto vote now records model, elapsed time, prompt size and output cap into the event log — the only paid LLM feature stays fully accounted.
+
 ## 1.2.0 — 2026-09-04
 
 - 🎨 **Visual identity pass**: a single color system (`src/ui.ts`, echoing the banner's violet→blue palette) across the watch TUI, `status`, and the run report — semantic colors (green healthy / yellow warn / red interventions), colored budget bars, brand headers. ANSI-aware width math keeps panels aligned at any terminal size.

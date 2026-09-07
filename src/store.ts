@@ -10,7 +10,7 @@ function sqliteCtor(): typeof DatabaseSync {
   return (nodeRequire("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 }
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS calls (
@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS blocks (
   tool_name TEXT NOT NULL,
   kind TEXT NOT NULL,
   ts INTEGER NOT NULL,
-  feedback TEXT
+  feedback TEXT,
+  reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_session ON blocks(session_id, ts);
 CREATE TABLE IF NOT EXISTS meta (
@@ -87,6 +88,13 @@ function migrate(d: DatabaseSync): void {
     if (version < 4) {
       try {
         d.exec("ALTER TABLE calls ADD COLUMN output_sample TEXT");
+      } catch {
+        /* column already exists */
+      }
+    }
+    if (version < 5) {
+      try {
+        d.exec("ALTER TABLE blocks ADD COLUMN reason TEXT");
       } catch {
         /* column already exists */
       }
@@ -182,10 +190,10 @@ export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: numbe
   return row?.m ?? null;
 }
 
-export function recordBlock(sessionId: string, toolName: string, kind: string, ts = Date.now()): number {
+export function recordBlock(sessionId: string, toolName: string, kind: string, ts = Date.now(), reason: string | null = null): number {
   const info = openDb()
-    .prepare("INSERT INTO blocks (session_id, tool_name, kind, ts) VALUES (?, ?, ?, ?)")
-    .run(sessionId, toolName, kind, ts);
+    .prepare("INSERT INTO blocks (session_id, tool_name, kind, ts, reason) VALUES (?, ?, ?, ?, ?)")
+    .run(sessionId, toolName, kind, ts, reason ? reason.slice(0, 500) : null);
   return Number(info.lastInsertRowid);
 }
 
@@ -214,11 +222,13 @@ export interface BlockRow {
   kind: string;
   ts: number;
   feedback: string | null;
+  /** the exact reason shown to the model at block time — auditability for the user */
+  reason: string | null;
 }
 
 export function listBlocks(limit = 20): BlockRow[] {
   return openDb()
-    .prepare("SELECT id, session_id, tool_name, kind, ts, feedback FROM blocks ORDER BY id DESC LIMIT ?")
+    .prepare("SELECT id, session_id, tool_name, kind, ts, feedback, reason FROM blocks ORDER BY id DESC LIMIT ?")
     .all(limit) as unknown as BlockRow[];
 }
 
@@ -258,6 +268,14 @@ export function pruneOlderThan(ts: number): void {
   d.prepare("DELETE FROM calls WHERE ts < ?").run(ts);
   d.prepare("DELETE FROM events WHERE ts < ?").run(ts);
   d.prepare("DELETE FROM blocks WHERE ts < ?").run(ts);
+}
+
+/** Remove every record of one session (used by the canary to keep stats honest). */
+export function purgeSession(sessionId: string): void {
+  const d = openDb();
+  d.prepare("DELETE FROM calls WHERE session_id = ?").run(sessionId);
+  d.prepare("DELETE FROM events WHERE session_id = ?").run(sessionId);
+  d.prepare("DELETE FROM blocks WHERE session_id = ?").run(sessionId);
 }
 
 export function getMeta(key: string): string | undefined {

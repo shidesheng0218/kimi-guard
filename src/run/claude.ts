@@ -134,7 +134,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
       const analysis = analyzeCall(callsSince(sid(), since), { tool: call.name, argsHash: fingerprint(call.name, call.input), args: call.input }, cfg);
       const block = analysis.findings.find((f) => f.severity === "block");
       if (block) {
-        recordBlock(sid(), call.name, block.kind);
+        recordBlock(sid(), call.name, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
         report.blocks.push({ tool: call.name, kind: block.kind, message: block.message, ts: Date.now() });
         if (cfg.notify.enabled && cfg.notify.onBlock) {
           notifyDesktop("🛡️ agent-guard", `blocked ${block.kind} on ${call.name}`);
@@ -290,7 +290,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
             const vote = await castVetoVote({ ...collectVetoContext(sid(), cfg), claims, goal: opts.prompt }, cfg.verify.veto, { ...process.env, ...opts.env });
             if (vote.vetoed) {
               report.vetoes++;
-              recordEvent(sid(), "veto", { claims: claims.length });
+              recordEvent(sid(), "veto", { claims: claims.length, model: vote.model, elapsedMs: vote.elapsedMs, promptChars: vote.promptChars });
               break;
             }
           }
