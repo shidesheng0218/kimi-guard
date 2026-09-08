@@ -96,6 +96,8 @@ kguard status           # 调用量、干预记录、会话、预算窗口 + 干
 kguard budget           # 配额计量快照：窗口、燃烧率、耗尽预测
 kguard blocks [-n N]    # 最近的拦截记录（含每次拦截的完整原因）
 agentguard canary       # 活性验证：现场展示守卫拦下一次合成重复调用
+agentguard blocks --kind/--session/--fp  # 按检测器/会话/误报过滤拦截记录
+agentguard digest --md <file>  # 可转发的 markdown 周报
 kguard feedback fp|tp <id>  # 标记误报/确认拦截——喂给检测器校准
 kguard report [--json] [--sessions]  # 匿名聚合导出（含跨会话重复模式）
 agentguard calibrate    # 根据你的误报反馈建议阈值调整（只打印 TOML，不改配置）

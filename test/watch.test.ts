@@ -1,4 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { resetDbForTests } from "../src/store.js";
+
+let tmp: string;
+beforeEach(() => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kguard-watch-"));
+  process.env.KIMI_GUARD_HOME = tmp;
+});
+afterEach(() => {
+  resetDbForTests();
+  delete process.env.KIMI_GUARD_HOME;
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 import { renderDashboard, type WatchState } from "../src/watch/render.js";
 import { defaultConfig } from "../src/config.js";
 import { budgetSnapshot } from "../src/meter.js";

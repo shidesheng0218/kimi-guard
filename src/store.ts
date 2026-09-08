@@ -244,6 +244,21 @@ export function blockKindStatsSince(sinceTs: number): Array<{ kind: string; n: n
     .all(sinceTs) as unknown as Array<{ kind: string; n: number }>;
 }
 
+/** Block rows in a time window (oldest first, bounded). */
+export function blocksSince(sinceTs: number, limit = 1000): BlockRow[] {
+  return openDb()
+    .prepare("SELECT id, session_id, tool_name, kind, ts, feedback, reason FROM blocks WHERE ts >= ? ORDER BY ts ASC LIMIT ?")
+    .all(sinceTs, limit) as unknown as BlockRow[];
+}
+
+/** Calls of one (session, tool) inside an explicit window — the observed loop streak before a block. */
+export function countCallsWindow(sessionId: string, toolName: string, fromTs: number, toTs: number): number {
+  const row = openDb()
+    .prepare("SELECT COUNT(*) AS n FROM calls WHERE session_id = ? AND tool_name = ? AND ts >= ? AND ts <= ?")
+    .get(sessionId, toolName, fromTs, toTs) as { n: number };
+  return Number(row?.n ?? 0);
+}
+
 /** Tool-call count in a time window. */
 export function countCallsSince(sinceTs: number): number {
   const row = openDb().prepare("SELECT COUNT(*) AS n FROM calls WHERE ts >= ?").get(sinceTs) as { n: number };
@@ -281,6 +296,13 @@ export function pruneOlderThan(ts: number): void {
   d.prepare("DELETE FROM calls WHERE ts < ?").run(ts);
   d.prepare("DELETE FROM events WHERE ts < ?").run(ts);
   d.prepare("DELETE FROM blocks WHERE ts < ?").run(ts);
+}
+
+/** Prune high-volume raw traffic (calls + events); blocks are kept — feedback history is an asset. */
+export function pruneCallsAndEvents(olderThanTs: number): void {
+  const d = openDb();
+  d.prepare("DELETE FROM calls WHERE ts < ?").run(olderThanTs);
+  d.prepare("DELETE FROM events WHERE ts < ?").run(olderThanTs);
 }
 
 /** Remove every record of one session (used by the canary to keep stats honest). */

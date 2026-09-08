@@ -18,10 +18,11 @@ import { captureCheckpoint, latestSessionId, latestCheckpointFile, renderResumeB
 import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js";
 import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
-import { buildCalibrateReport, formatCalibrateReport } from "./calibrate.js";
+import { buildCalibrateReport, formatCalibrateReport, applyCalibrate } from "./calibrate.js";
 import { menubarText, installMenubar } from "./menubar.js";
 import { notifyDesktop } from "./notify.js";
-import { buildDigest, formatDigest } from "./digest.js";
+import { buildDigest, formatDigest, formatDigestMarkdown } from "./digest.js";
+import { runCanary } from "./canary.js";
 import { writeIncident, latestRunId } from "./incident.js";
 
 const program = new Command();
@@ -36,7 +37,8 @@ program
   .description("install hook rules into detected agent CLIs (Kimi Code config.toml and/or Claude Code settings.json)")
   .option("--compat", "legacy-safe mode: only the 3 universally supported hook events (for older kimi-cli versions)")
   .option("--harness <name>", "kimi | claude | codex | gemini | all (default: auto-detect installed harnesses, fallback kimi)")
-  .action((opts: { compat?: boolean; harness?: string }) => {
+  .option("--no-canary", "skip the post-install proof-of-life run")
+  .action((opts: { compat?: boolean; harness?: string; canary?: boolean }) => {
     const which = opts.harness ?? "auto";
     const known = ["kimi", "claude", "codex", "gemini", "all", "auto"];
     if (!known.includes(which)) {
@@ -78,6 +80,12 @@ program
       console.log(`✓ [gemini] hooks ${r.updated ? "installed" : "already up to date"}`);
     }
     console.log("  restart the agent CLI (or /reload) to take effect.");
+    if (opts.canary !== false && doKimi) {
+      console.log("");
+      const r = runCanary("kimi");
+      for (const line of r.lines) console.log(line);
+      if (!r.live) console.log("  (install completed; the canary warning above means hooks may need a CLI restart to fire)");
+    }
   });
 
 program
@@ -185,52 +193,28 @@ program
   .command("canary")
   .description("proof-of-life: fire synthetic repeated calls through the real hook pipeline and show the guard blocking")
   .option("--harness <name>", "harness to verify (default: kimi)", "kimi")
-  .action(async (opts: { harness: string }) => {
-    const harness = ["claude", "codex", "gemini"].includes(opts.harness) ? (opts.harness as "claude" | "codex" | "gemini") : "kimi";
-    const session = `canary-${Date.now()}`;
-    const payload = JSON.stringify({ session_id: session, tool_name: "Grep", tool_input: { pattern: "canary-signal" } });
-    const { spawnSync } = await import("node:child_process");
-    const { purgeSession } = await import("./store.js");
-    // same binary the agent CLI invokes: dist/cli.js in prod; the .ts source via tsx in dev
-    const script = path.resolve(process.argv[1]!);
-    const repoRoot = path.dirname(path.dirname(script));
-    const hookArgs = script.endsWith(".ts") ? [path.join(repoRoot, "node_modules", ".bin", "tsx"), script] : [script];
-    const fire = (event: string) =>
-      spawnSync(process.execPath, [...hookArgs, "hook", event, "--harness", harness], { input: payload, encoding: "utf8", timeout: 15000, cwd: repoRoot });
-
-    console.log(`canary: firing 3 identical PostToolUse + 1 PreToolUse through the real hook path (${session})…`);
-    try {
-      for (let i = 1; i <= 3; i++) {
-        const r = fire("PostToolUse");
-        if (r.status !== 0) {
-          console.error(`✗ PostToolUse #${i} exited ${r.status} — hook pipeline is unhealthy; run: agentguard doctor`);
-          process.exitCode = 1;
-          return;
-        }
-        console.log(`  PostToolUse #${i} → exit 0`);
-      }
-      const pre = fire("PreToolUse");
-      if (pre.status === 2) {
-        console.log(`✓ guard is LIVE — the 4th identical call was blocked (exit 2)`);
-        console.log(`  ${pc.dim((pre.stderr ?? "").split("\n")[0] ?? "")}`);
-      } else {
-        console.error(`✗ expected a block (exit 2), got exit ${pre.status ?? "?"} — hooks may not be wired correctly; run: agentguard doctor`);
-        process.exitCode = 1;
-      }
-    } finally {
-      // canary traffic is synthetic — keep the real intervention stats honest
-      purgeSession(session);
-    }
+  .action((opts: { harness: string }) => {
+    const harness = ["claude", "codex", "gemini"].includes(opts.harness) ? (opts.harness as HarnessName) : "kimi";
+    const r = runCanary(harness);
+    for (const line of r.lines) console.log(line);
+    if (!r.live) process.exitCode = 1;
   });
 
 program
   .command("blocks")
   .description("list recent guard blocks (with ids for feedback)")
   .option("-n, --last <n>", "how many blocks to show", "20")
-  .action((opts: { last: string }) => {
-    const rows = listBlocks(Number(opts.last));
+  .option("--kind <kind>", "only show blocks from one detector (repeat/churn/noGain/...)")
+  .option("--session <id>", "only show blocks from sessions containing this substring")
+  .option("--fp", "only show blocks marked as false positives")
+  .action((opts: { last: string; kind?: string; session?: string; fp?: boolean }) => {
+    let rows = listBlocks(Math.max(Number(opts.last), 200));
+    if (opts.kind) rows = rows.filter((r) => r.kind === opts.kind);
+    if (opts.session) rows = rows.filter((r) => r.session_id.includes(opts.session!));
+    if (opts.fp) rows = rows.filter((r) => r.feedback === "fp");
+    rows = rows.slice(0, Number(opts.last));
     if (rows.length === 0) {
-      console.log("no blocks recorded yet");
+      console.log("no blocks recorded yet" + (opts.kind || opts.session || opts.fp ? " (matching the filters)" : ""));
       return;
     }
     for (const r of rows) {
@@ -298,8 +282,20 @@ program
 program
   .command("calibrate")
   .description("suggest threshold/exemption tweaks from your false-positive feedback (prints TOML, never edits config)")
-  .action(() => {
+  .option("--apply", "write the suggested exemptPatterns into your user config (backup first, union with existing)")
+  .action((opts: { apply?: boolean }) => {
+    if (opts.apply) {
+      const r = applyCalibrate();
+      if (r.applied.length > 0) {
+        if (r.backupPath) console.log(`✓ backup: ${r.backupPath}`);
+        console.log(`✓ added ${r.applied.length} exempt pattern(s): ${r.applied.map((p) => JSON.stringify(p)).join(", ")}`);
+      } else {
+        console.log(`nothing to apply — ${r.reason}`);
+      }
+      return;
+    }
     console.log(formatCalibrateReport(buildCalibrateReport()));
+    console.log(pc.dim("\napply the exemption suggestions with: agentguard calibrate --apply"));
   });
 
 program
@@ -307,9 +303,14 @@ program
   .description("weekly value summary: calls, interventions, estimated requests saved, quota, calibration hints")
   .option("-w, --weeks <n>", "how many weeks to summarize", "1")
   .option("--notify", "also send the summary as a macOS desktop notification")
+  .option("--md <file>", "write the digest as a markdown file (shareable with the team)")
   .option("--json", "print machine-readable digest")
-  .action((opts: { weeks: string; notify?: boolean; json?: boolean }) => {
+  .action((opts: { weeks: string; notify?: boolean; json?: boolean; md?: string }) => {
     const d = buildDigest(Number(opts.weeks));
+    if (opts.md) {
+      fs.writeFileSync(opts.md, formatDigestMarkdown(d), "utf8");
+      console.log(`✓ digest written: ${opts.md}`);
+    }
     if (opts.json) console.log(JSON.stringify(d, null, 2));
     else console.log(formatDigest(d));
     if (opts.notify) {

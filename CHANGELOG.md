@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0 — 2026-09-08
+
+- ✅ **Install now proves itself**: `agentguard install` ends with an automatic canary run (skip with `--no-canary`) — first contact with the guard is a watched interception, not a leap of faith.
+- 🧹 **Automatic state pruning**: raw call/event traffic older than 30d is pruned on hook entry (throttled daily) — the state db no longer grows forever. Block/feedback history is kept forever: it's calibration data.
+- 🔍 **watch shows block reasons**: the interventions feed now includes the exact reason under each block — the dashboard and `agentguard blocks` finally tell the same story. Plus: select a session with ↑/↓, `enter` for its recent calls, `esc` to go back.
+- 🧮 **`calibrate --apply`**: one-command adoption of exemption suggestions (backup first, union with existing patterns, threshold suggestions stay print-only).
+- 📐 **estSaved uses observed evidence**: loop-family blocks are credited `max(default, the streak actually observed before the block)` — bigger loops count more, documented as a heuristic.
+- 🎛️ **`agentguard blocks --kind/--session/--fp`**, **`agentguard digest --md <file>`** (shareable markdown digest).
+
 ## 1.4.1 — 2026-09-08
 
 - 📄 **`agentguard incident <runId>`** — generates a shareable Markdown post-mortem for any recorded run: what failure pattern fired, each block with the exact reason the model received, the annotated timeline, and estimated requests saved. The evidence chain a user shows their team (or posts online). Written to `~/.agent-guard/incidents/`; local data only.

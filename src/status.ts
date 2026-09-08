@@ -7,8 +7,8 @@ import { hooksInstalled } from "./installer.js";
 import { claudeHooksInstalled } from "./harness/claude.js";
 import { codexHooksInstalled } from "./harness/codex.js";
 import { geminiHooksInstalled } from "./harness/gemini.js";
-import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, blockKindStatsSince, crossSessionRepeats, type BlockKindStat } from "./store.js";
-import { estSavedFromWindow } from "./estSaved.js";
+import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, blocksSince, countCallsWindow, crossSessionRepeats, type BlockKindStat } from "./store.js";
+import { estSavedFromBlocks, STREAK_WINDOW_MS } from "./estSaved.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
@@ -81,7 +81,9 @@ export function buildGuardReport(cfg = loadConfig(), opts?: { sessions?: boolean
     calls24h: s.calls24h,
     blocks24h: s.blocks24h.reduce((acc, b) => acc + b.n, 0),
     detectors,
-    estSaved: estSavedFromWindow(blockKindStatsSince(Date.now() - 7 * 86_400_000)),
+    estSaved: estSavedFromBlocks(blocksSince(Date.now() - 7 * 86_400_000), (b) =>
+      countCallsWindow(b.session_id, b.tool_name, b.ts - STREAK_WINDOW_MS, b.ts),
+    ),
     budget: {
       plan: cfg.budget.plan,
       precise: snap.precise,
@@ -140,7 +142,9 @@ export function cmdStatus(): void {
     console.log(`  ${pc.yellow("!")} payload normalization misses: ${normalizeMisses} — possible upstream schema drift; run 'kguard probe on' and compare 'kguard doctor' field coverage`);
   }
   console.log(`  ${pc.dim("tool calls (24h):")}    ${s.calls24h}`);
-  const saved7d = estSavedFromWindow(blockKindStatsSince(Date.now() - 7 * 86_400_000));
+  const saved7d = estSavedFromBlocks(blocksSince(Date.now() - 7 * 86_400_000), (b) =>
+    countCallsWindow(b.session_id, b.tool_name, b.ts - STREAK_WINDOW_MS, b.ts),
+  );
   if (saved7d > 0) console.log(`  ${pc.dim("est. saved (7d):")}     ${pc.green(`~${saved7d} requests`)} ${pc.dim("(heuristic)")}`);
   const parts24 = s.blocks24h.map((b) => `${b.kind}×${b.n}`).join(", ");
   console.log(`  ${pc.dim("interventions (24h):")} ${parts24 || "none"}`);

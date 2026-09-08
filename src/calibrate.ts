@@ -1,5 +1,9 @@
 import { blockKindStats, callsSince, listBlocks } from "./store.js";
-import { defaultConfig } from "./config.js";
+import { defaultConfig, importConfig, loadConfig } from "./config.js";
+import { userConfigPath } from "./paths.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 /**
  * Deterministic calibration suggestions from the user's feedback loop.
@@ -64,6 +68,27 @@ export function buildCalibrateReport(): CalibrateReport {
     .map(([p]) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
   return { detectorSuggestions, exemptSuggestions, sampleSize: stats.reduce((a, s) => a + s.n, 0) };
+}
+
+/**
+ * Apply the exempt-pattern suggestions into the user config (backup first,
+ * union with existing patterns — user's own entries always preserved).
+ * Threshold suggestions stay print-only; exemptions are the safe one to automate.
+ */
+export function applyCalibrate(): { applied: string[]; backupPath?: string; reason?: string } {
+  const report = buildCalibrateReport();
+  if (report.exemptSuggestions.length === 0) return { applied: [], reason: "no exemption suggestions right now" };
+  const current = loadConfig().repeat.exemptPatterns;
+  const union = [...new Set([...current, ...report.exemptSuggestions])];
+  const incoming = union.filter((p) => !current.includes(p));
+  if (incoming.length === 0) return { applied: [], reason: "suggestions already present in config" };
+
+  const tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ag-cal-")), "calibrate.toml");
+  fs.writeFileSync(tmpFile, `[repeat]\nexemptPatterns = ${JSON.stringify(union)}\n`, "utf8");
+  const r = importConfig(tmpFile, userConfigPath());
+  fs.rmSync(path.dirname(tmpFile), { recursive: true, force: true });
+  if (!r.merged) return { applied: [], reason: r.error };
+  return { applied: incoming, backupPath: r.backupPath };
 }
 
 export function formatCalibrateReport(r: CalibrateReport): string {

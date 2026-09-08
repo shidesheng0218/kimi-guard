@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { callsSince, countBlocks, getMeta, recordBlock, recordCall, recordEvent, setMeta } from "./store.js";
+import { callsSince, countBlocks, getMeta, pruneCallsAndEvents, recordBlock, recordCall, recordEvent, setMeta } from "./store.js";
 import { probeLogPath } from "./paths.js";
 import type { GuardConfig } from "./config.js";
 import { analyzeCall } from "./analysis.js";
@@ -68,6 +68,10 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
     /* fail-open */
   }
 
+  // Housekeeping: throttle-prune raw traffic (calls/events older than 30d).
+  // Blocks are kept forever — feedback history is calibration data.
+  maybePrune(now);
+
   const sessionId =
     (typeof payload["session_id"] === "string" && payload["session_id"]) ||
     (typeof payload["sessionId"] === "string" && payload["sessionId"]) ||
@@ -119,6 +123,20 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       return { code: 0 };
     default:
       return { code: 0 };
+  }
+}
+
+const PRUNE_INTERVAL_MS = 24 * 3_600_000;
+const PRUNE_AGE_MS = 30 * 86_400_000;
+
+function maybePrune(now: number): void {
+  try {
+    const last = Number(getMeta("last_prune_ts") ?? "0");
+    if (now - last < PRUNE_INTERVAL_MS) return;
+    setMeta("last_prune_ts", String(now));
+    pruneCallsAndEvents(now - PRUNE_AGE_MS);
+  } catch {
+    /* best effort */
   }
 }
 

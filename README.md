@@ -158,6 +158,8 @@ kguard status           # calls, interventions, sessions, budget windows + inter
 kguard budget           # quota metering snapshot: windows, burn rate, projection
 kguard blocks [-n N]    # recent blocks with ids + the exact reason each fired
 agentguard canary       # proof-of-life: shows the guard blocking a synthetic repeat, live
+agentguard blocks --kind/--session/--fp  # filter the blocks list
+agentguard digest --md <file>  # shareable markdown digest
 kguard feedback fp|tp <id>  # mark a block false-positive / confirmed — calibrates detectors
 kguard report [--json] [--sessions]  # anonymized aggregate (+ cross-session patterns)
 agentguard calibrate    # suggest threshold tweaks from your feedback (prints TOML)
