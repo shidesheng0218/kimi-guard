@@ -33,13 +33,7 @@ All drafts refreshed for v1.4.0 (canary / bench / digest / 4 harnesses / GitHub 
 
 ## claude-plugins-community submission
 
-PR 到 https://github.com/anthropics/claude-plugins-community 增加插件条目，正文:
-
-```
-Adds agent-guard: a runtime behavior guard for Claude Code — semantic loop
-detection, quota gates, completion gate (claim vs evidence), kill switch,
-checkpoints, plus a crash-test suite (agentguard bench) and proof-of-life
-canary. The plugin's hooks call the agentguard CLI
-(npm i -g @shidesheng0218/agentguard); without it the hooks fail-open.
-Plugin source: claude-plugin/ in the repo. License: MIT.
-```
+⚠️ **该目录不接受 PR**(直接 PR 会被自动关闭)。投稿走官方表单:
+https://clau.de/plugin-directory-submission —— 现成的表单答案见
+[claude-directory-submission.md](claude-directory-submission.md),直接粘贴。
+自建市场(`/plugin marketplace add shidesheng0218/kimi-guard`)无需审核、今天可用,不受表单排队影响。

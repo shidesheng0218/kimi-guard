@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1 — 2026-09-08
+
+- 📄 **`agentguard incident <runId>`** — generates a shareable Markdown post-mortem for any recorded run: what failure pattern fired, each block with the exact reason the model received, the annotated timeline, and estimated requests saved. The evidence chain a user shows their team (or posts online). Written to `~/.agent-guard/incidents/`; local data only.
+- 🐛 **bench**: fixture path resolution now works from the bundled dist (was silently zero-scoring); the step-cap scenario actually exercises the cap.
+
 ## 1.4.0 — 2026-09-07
 
 - 📮 **`agentguard digest`** — weekly value summary: calls, interventions by detector, **estimated requests saved** (documented heuristic), quota windows, calibration hints. `--notify` sends it as a desktop notification you can schedule from your own cron/launchd. The answer to "is the guard actually doing anything for me?" — every week, on your own scheduler.

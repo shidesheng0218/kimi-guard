@@ -22,6 +22,7 @@ import { buildCalibrateReport, formatCalibrateReport } from "./calibrate.js";
 import { menubarText, installMenubar } from "./menubar.js";
 import { notifyDesktop } from "./notify.js";
 import { buildDigest, formatDigest } from "./digest.js";
+import { writeIncident, latestRunId } from "./incident.js";
 
 const program = new Command();
 
@@ -369,6 +370,31 @@ program
     } else {
       console.log(`agent-guard replay — ${id}\n`);
       console.log(renderTimeline(events));
+    }
+  });
+
+program
+  .command("incident")
+  .description("generate a shareable Markdown incident report for a run (post-mortem with evidence)")
+  .argument("[runId]", "run id (default: the latest run)")
+  .option("--print", "print to stdout instead of writing the file")
+  .action((runId: string | undefined, opts: { print?: boolean }) => {
+    const id = runId ?? latestRunId();
+    if (!id) {
+      console.log("no recorded runs yet — run one with: agentguard run ...");
+      return;
+    }
+    const r = writeIncident(id);
+    if (!r) {
+      console.error(`no reportable data for run ${id} (no report.json and no log events)`);
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.print) {
+      console.log(r.markdown);
+    } else {
+      console.log(`✓ incident report: ${r.path}`);
+      console.log(`  share it with your team, or replay it: agentguard replay ${id}`);
     }
   });
 
