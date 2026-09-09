@@ -69,21 +69,34 @@ export function hasEvidence(sessionId: string, cfg: GuardConfig, now = Date.now(
       ? cfg.verify.evidencePatterns.map((p) => new RegExp(p))
       : DEFAULT_EVIDENCE_PATTERNS;
   const shells = shellTools(cfg);
+  const edits = editTools(cfg);
   const calls = callsSince(sessionId, since, 400);
+  let lastVerifyTs = -1;
+  let lastEditTs = -1;
   for (const r of calls) {
     if (r.status !== "ok") continue;
+    if (edits.has(r.tool_name)) {
+      lastEditTs = Math.max(lastEditTs, r.ts);
+      continue;
+    }
     if (!shells.has(r.tool_name)) continue;
     try {
       const args = JSON.parse(r.args_json) as { command?: string };
       const cmd = args.command ?? "";
       for (const p of patterns) {
-        if (p.test(cmd)) return true;
+        if (p.test(cmd)) {
+          lastVerifyTs = Math.max(lastVerifyTs, r.ts);
+          break;
+        }
       }
     } catch {
       continue;
     }
   }
-  return false;
+  if (lastVerifyTs < 0) return false;
+  // Evidence freshness: verification only counts if it came AFTER the last edit.
+  if (cfg.verify.freshAfterEdits && lastEditTs > 0 && lastVerifyTs < lastEditTs) return false;
+  return true;
 }
 
 export function vouch(sessionId: string): void {

@@ -28,23 +28,50 @@ export function killSwitchDecision(): PolicyDecision {
 }
 
 /**
+ * Compound scoring (opt-in): several DIFFERENT weak signals at once are
+ * stronger evidence of a stuck agent than any single one. Off by default —
+ * this is the stricter mode users opt into.
+ */
+export function compoundUpgrade(findings: Finding[], enabled: boolean): Finding[] {
+  if (!enabled) return findings;
+  const warnKinds = new Set(findings.filter((f) => f.severity === "warn").map((f) => f.kind));
+  if (warnKinds.size < 3) return findings;
+  return [
+    {
+      kind: "compound",
+      severity: "block",
+      message:
+        `Multiple weak signals at once (${[...warnKinds].join(", ")}): individually each is a warn, ` +
+        `together they mean the agent is stuck. Stop, reassess the approach, and either proceed ` +
+        `differently or end the turn with a summary.`,
+      evidence: `distinct warn kinds=${warnKinds.size}`,
+    },
+    ...findings,
+  ] as Finding[];
+}
+
+/**
  * Resolve findings into a single action. Highest severity wins; blocks
  * outrank warns; warns are surfaced as context hints.
  */
 export function resolveFindings(
   findings: Finding[],
-  ctx: { blocksInSession: number; cfg: { killSwitch: boolean; maxBlocksPerSession: number } },
+  ctx: { blocksInSession: number; cfg: { killSwitch: boolean; maxBlocksPerSession: number; compoundBlocks?: boolean } },
 ): PolicyDecision {
   if (isKillSwitchTripped(ctx.blocksInSession, ctx.cfg)) {
     return killSwitchDecision();
   }
-  const block = findings.find((f) => f.severity === "block");
+  const withCompound = compoundUpgrade(findings, ctx.cfg.compoundBlocks === true);
+  const block = withCompound.find((f) => f.severity === "block");
   if (block) {
-    return { action: "block", blockReason: `[agent-guard] Blocked (${block.kind}): ${block.message}` };
+    const evidence = block.evidence ? ` [evidence: ${block.evidence}]` : "";
+    return { action: "block", blockReason: `[agent-guard] Blocked (${block.kind}): ${block.message}${evidence}` };
   }
-  const warns = findings.filter((f) => f.severity === "warn");
+  const warns = withCompound.filter((f) => f.severity === "warn");
   if (warns.length > 0) {
-    const hint = warns.map((f) => `[agent-guard] note (${f.kind}): ${f.message}`).join(" | ");
+    const hint = warns
+      .map((f) => `[agent-guard] note (${f.kind}): ${f.message}${f.evidence ? ` [${f.evidence}]` : ""}`)
+      .join(" | ");
     return { action: "warn", contextHint: hint };
   }
   return { action: "allow" };

@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import { callsSince, countBlocks, getMeta, pruneCallsAndEvents, recordBlock, recordCall, recordEvent, setMeta } from "./store.js";
+import { callsSince, countBlocks, getMeta, pruneCallsAndEvents, recordBlock, recordCall, recordEvent, sessionsForSignature, setMeta } from "./store.js";
 import { probeLogPath } from "./paths.js";
 import type { GuardConfig } from "./config.js";
-import { analyzeCall } from "./analysis.js";
+import { analyzeCall, analyzeCrossSession } from "./analysis.js";
 import { isKillSwitchTripped, resolveFindings } from "./policy.js";
 import { notifyDesktop } from "./notify.js";
 import { evaluateBudgetGate } from "./meter.js";
@@ -165,6 +165,13 @@ function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload,
   const since = now - Math.max(cfg.repeat.windowMinutes, cfg.cycle.windowMinutes, cfg.policy.blockWindowMinutes) * 60_000;
   const history = callsSince(sessionId, since);
   const analysis = analyzeCall(history, { tool: call.tool, argsHash: call.argsHash, args: call.args }, cfg, now);
+  analysis.findings.push(
+    ...analyzeCrossSession(
+      { tool: call.tool, argsHash: call.argsHash, sessionId },
+      (t, h) => sessionsForSignature(t, h, now - 7 * 86_400_000),
+      cfg,
+    ),
+  );
 
   if (cfg.budget.dispatchTools.includes(call.tool)) {
     const budgetFinding = evaluateBudgetGate(sessionId, cfg.budget, now);

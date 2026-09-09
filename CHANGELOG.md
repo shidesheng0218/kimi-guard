@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0 — 2026-09-08
+
+- 🎯 **Evidence freshness in the completion gate**: verification only counts if the last successful test/build/lint came AFTER the last successful edit. Editing after verifying no longer fools the gate. (`[verify] freshAfterEdits = false` restores the old lenient behavior.)
+- 🔬 **Arg-level similarity warnings**: retries whose args differ only by trivia (trailing space, punctuation) now warn — token-Jaccard over arg values, warn-only so it can't misfire into a block.
+- 🔁 **Edit revert detection**: same file written A→B→A (editing without understanding) warns. Zero new storage — works on the already-recorded edit history.
+- 🧮 **Compound scoring (opt-in)**: `[policy] compoundBlocks = true` — three or more DISTINCT warn-level signals at once upgrade to a block. Off by default: stricter is a choice, not a default.
+- 🧾 **Block reasons carry evidence**: every block/warn message now appends the detector's evidence (`[evidence: signature count=4]`) — the reason the model sees is the evidence you can audit.
+- 🌐 **Cross-session warn**: a call signature repeated across ≥2 other recent sessions warns — the same loop surviving session boundaries.
+
 ## 1.5.0 — 2026-09-08
 
 - ✅ **Install now proves itself**: `agentguard install` ends with an automatic canary run (skip with `--no-canary`) — first contact with the guard is a watched interception, not a leap of faith.

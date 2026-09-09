@@ -251,6 +251,15 @@ export function blocksSince(sinceTs: number, limit = 1000): BlockRow[] {
     .all(sinceTs, limit) as unknown as BlockRow[];
 }
 
+/** Distinct sessions that used a given (tool, argsHash) signature in the window. */
+export function sessionsForSignature(toolName: string, argsHash: string, sinceTs: number): string[] {
+  return (
+    openDb()
+      .prepare("SELECT DISTINCT session_id FROM calls WHERE tool_name = ? AND args_hash = ? AND ts >= ?")
+      .all(toolName, argsHash, sinceTs) as Array<{ session_id: string }>
+  ).map((r) => r.session_id);
+}
+
 /** Calls of one (session, tool) inside an explicit window — the observed loop streak before a block. */
 export function countCallsWindow(sessionId: string, toolName: string, fromTs: number, toTs: number): number {
   const row = openDb()

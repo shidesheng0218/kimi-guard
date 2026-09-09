@@ -39,6 +39,7 @@ const CALIBRATION_KEYS: Record<string, string> = {
   cycle: "cycle.enabled = false",
   verify: "verify.blockOnNoEvidence = false (or enable verify.veto)",
   killSwitch: "policy.maxBlocksPerSession",
+  compound: "policy.compoundBlocks = false",
 };
 
 /**

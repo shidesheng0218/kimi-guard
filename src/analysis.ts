@@ -3,7 +3,7 @@ import { fingerprint } from "./events.js";
 import type { GuardConfig } from "./config.js";
 import { editTools, readTools, searchTools } from "./toolsets.js";
 
-export type FindingKind = "repeat" | "cycle" | "noGain" | "noGainFuzzy" | "churn" | "noProgress" | "nearRepeat" | "explore" | "budget";
+export type FindingKind = "repeat" | "cycle" | "noGain" | "noGainFuzzy" | "churn" | "noProgress" | "nearRepeat" | "argSimilarity" | "editRevert" | "crossSession" | "explore" | "budget" | "compound";
 export type Severity = "warn" | "block";
 
 export interface Finding {
@@ -288,6 +288,75 @@ export interface AnalysisResult {
   findings: Finding[];
 }
 
+/** Token-set Jaccard over a string (split on non-word chars) — for arg-level similarity. */
+export function tokenJaccard(a: string, b: string): number {
+  const tok = (s: string): Set<string> => new Set(s.toLowerCase().split(/[^a-z0-9一-鿿]+/i).filter(Boolean));
+  const A = tok(a);
+  const B = tok(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / (A.size + B.size - inter);
+}
+
+/** Extract the VALUES of an args object as token text (keys are identical for the same tool — they'd inflate similarity). */
+function argValueText(argsJson: string): string {
+  try {
+    const obj = JSON.parse(argsJson) as unknown;
+    const values: string[] = [];
+    const walk = (v: unknown): void => {
+      if (typeof v === "string") values.push(v);
+      else if (Array.isArray(v)) v.forEach(walk);
+      else if (v !== null && typeof v === "object") Object.values(v as Record<string, unknown>).forEach(walk);
+      else if (v !== null && v !== undefined) values.push(String(v));
+    };
+    walk(obj);
+    return values.join(" ");
+  } catch {
+    return argsJson;
+  }
+}
+
+/**
+ * Arg-level similarity: proposed args whose VALUE tokens are near-identical to a
+ * recent same-tool call (but not exact) — "retries that differ by trivia".
+ * Warn-only: catching near-retries is useful; blocking them is not.
+ */
+export function analyzeArgSimilarity(
+  history: CallRow[],
+  proposed: { tool: string; argsHash: string; args: unknown },
+  cfg: GuardConfig,
+  now: number,
+): Finding[] {
+  if (!cfg.repeat.enabled) return allow;
+  const since = now - cfg.repeat.windowMinutes * 60_000;
+  const proposedText = argValueText(JSON.stringify(proposed.args ?? {}));
+  if (!proposedText) return allow;
+  let best = 0;
+  let bestTool = "";
+  for (const r of history) {
+    if (r.ts < since || r.tool_name !== proposed.tool) continue;
+    if (r.args_hash === proposed.argsHash) continue; // exact dup is repeat's job
+    const sim = tokenJaccard(proposedText, argValueText(r.args_json));
+    if (sim > best) {
+      best = sim;
+      bestTool = r.tool_name;
+    }
+  }
+  if (best < 0.9 || !bestTool) return allow;
+  return [
+    {
+      kind: "argSimilarity",
+      severity: "warn",
+      tool: proposed.tool,
+      message:
+        `${proposed.tool} args are ${Math.round(best * 100)}% similar to a recent call — this looks like a ` +
+        `near-retry that changes nothing meaningful. If the previous answer was insufficient, say what differs.`,
+      evidence: `token_similarity=${best.toFixed(2)}`,
+    },
+  ];
+}
+
 /** Trigram set of a string (short strings < 3 chars map to the whole string). */
 function trigrams(s: string): Set<string> {
   const out = new Set<string>();
@@ -464,6 +533,72 @@ export function analyzeNearRepeat(history: CallRow[], cfg: GuardConfig, now = Da
   return findings.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "block" ? -1 : 1)).slice(0, 1);
 }
 
+/**
+ * Edit revert loops: same file written with content A → B → A — the classic
+ * "editing without understanding" oscillation. Warn-only.
+ */
+export function analyzeEditRevert(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
+  if (!cfg.churn.enabled) return allow;
+  const since = now - cfg.churn.windowMinutes * 60_000;
+  const edits = editToolSet(cfg);
+  const byFile = new Map<string, string[]>();
+  for (const r of history) {
+    if (r.ts < since || !r.file_path || !edits.has(r.tool_name)) continue;
+    const arr = byFile.get(r.file_path) ?? [];
+    arr.push(r.args_hash);
+    byFile.set(r.file_path, arr);
+  }
+  for (const [file, hashes] of byFile) {
+    const tail = hashes.slice(-4);
+    if (tail.length < 3) continue;
+    // A→B→A (last three) or A→B→A→B (last four)
+    const [a, b, c, d] = tail;
+    const isABA = tail.length >= 3 && a === c && a !== b;
+    const isABAB = tail.length === 4 && a === c && b === d && a !== b;
+    if (isABA || isABAB) {
+      return [
+        {
+          kind: "editRevert",
+          severity: "warn",
+          tool: "edit",
+          message:
+            `${file} is oscillating: the last edits revert each other (A→B→${isABAB ? "A→B" : "A"}). ` +
+            `Stop toggling — decide from the evidence which version is right, then apply it once.`,
+          evidence: `file=${file} pattern=${isABAB ? "ABAB" : "ABA"}`,
+        },
+      ];
+    }
+  }
+  return allow;
+}
+
+/**
+ * Cross-session repeats: this exact call signature has repeated across
+ * multiple sessions recently — the same loop survives session boundaries.
+ * Warn-only (the signature may be a legit daily routine).
+ */
+export function analyzeCrossSession(
+  proposed: { tool: string; argsHash: string; sessionId: string },
+  sessionsForSignature: (tool: string, hash: string) => string[],
+  cfg: GuardConfig,
+): Finding[] {
+  if (!cfg.nearRepeat.enabled) return allow;
+  const sessions = sessionsForSignature(proposed.tool, proposed.argsHash);
+  const others = sessions.filter((s) => s !== proposed.sessionId);
+  if (others.length < 2) return allow;
+  return [
+    {
+      kind: "crossSession",
+      severity: "warn",
+      tool: proposed.tool,
+      message:
+        `this exact call has been repeated across ${sessions.length} sessions recently — the same loop ` +
+        `keeps coming back. Check whether the answer from a previous session is already recorded.`,
+      evidence: `sessions=${sessions.length}`,
+    },
+  ];
+}
+
 export function analyzeCall(
   history: CallRow[],
   proposed: { tool: string; argsHash: string; args: unknown },
@@ -478,6 +613,8 @@ export function analyzeCall(
     ...analyzeChurn(history, cfg, now),
     ...analyzeNoProgress(history, proposed, cfg, now),
     ...analyzeNearRepeat(history, cfg, now),
+    ...analyzeArgSimilarity(history, proposed, cfg, now),
+    ...analyzeEditRevert(history, cfg, now),
     ...analyzeExplore(history, proposed, cfg, now),
   ];
   const rank = { block: 0, warn: 1 } as const;

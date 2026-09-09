@@ -65,6 +65,8 @@ export interface GuardConfig {
   verify: {
     enabled: boolean;
     blockOnNoEvidence: boolean;
+    /** verification only counts if it came after the last successful edit */
+    freshAfterEdits: boolean;
     evidenceWindowMinutes: number;
     claimPatterns: string[];
     evidencePatterns: string[];
@@ -109,6 +111,8 @@ export interface GuardConfig {
     killSwitch: boolean;
     maxBlocksPerSession: number;
     blockWindowMinutes: number;
+    /** opt-in: ≥3 distinct warn signals at once upgrade to a block */
+    compoundBlocks: boolean;
   };
   budget: {
     enabled: boolean;
@@ -147,6 +151,7 @@ export const defaultConfig: GuardConfig = {
   verify: {
     enabled: true,
     blockOnNoEvidence: false,
+    freshAfterEdits: true,
     evidenceWindowMinutes: 60,
     claimPatterns: [],
     evidencePatterns: [],
@@ -171,7 +176,7 @@ export const defaultConfig: GuardConfig = {
     blockAt: 10,
     tools: ["WriteFile", "StrReplaceFile", "Edit", "Write", "MultiEdit", "NotebookEdit"],
   },
-  policy: { killSwitch: true, maxBlocksPerSession: 5, blockWindowMinutes: 60 },
+  policy: { killSwitch: true, maxBlocksPerSession: 5, blockWindowMinutes: 60, compoundBlocks: false },
   budget: {
     enabled: true,
     plan: "tier1",
@@ -236,6 +241,7 @@ blockAt = 15
 enabled = true
 blockOnNoEvidence = false # hooks path: block Stop when edits landed but nothing was verified
 evidenceWindowMinutes = 60
+freshAfterEdits = true    # verification only counts if it came after the last successful edit
 # deprecated: shell tool names now live in [tools] shell (this key still works)
 
 [verify.veto]             # optional LLM veto vote to suppress false positives (self-critic style)
@@ -285,6 +291,7 @@ blockAt = 10
 killSwitch = true         # after maxBlocksPerSession interventions, block ALL tools
 maxBlocksPerSession = 5
 blockWindowMinutes = 60
+compoundBlocks = false    # opt-in: ≥3 distinct warn signals at once upgrade to a block
 
 [budget]                  # request accounting for Kimi Coding Plans
 enabled = true
@@ -454,6 +461,7 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   const verify = section("verify");
   cfg.verify.enabled = bool(verify["enabled"], cfg.verify.enabled);
   cfg.verify.blockOnNoEvidence = bool(verify["blockOnNoEvidence"], cfg.verify.blockOnNoEvidence);
+  cfg.verify.freshAfterEdits = bool(verify["freshAfterEdits"], cfg.verify.freshAfterEdits);
   cfg.verify.evidenceWindowMinutes = num(verify["evidenceWindowMinutes"], cfg.verify.evidenceWindowMinutes);
   const claims = verify["claimPatterns"];
   if (Array.isArray(claims)) cfg.verify.claimPatterns = claims.filter((c): c is string => typeof c === "string");
@@ -515,6 +523,7 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   cfg.policy.killSwitch = bool(policy["killSwitch"], cfg.policy.killSwitch);
   cfg.policy.maxBlocksPerSession = num(policy["maxBlocksPerSession"], cfg.policy.maxBlocksPerSession);
   cfg.policy.blockWindowMinutes = num(policy["blockWindowMinutes"], cfg.policy.blockWindowMinutes);
+  cfg.policy.compoundBlocks = bool(policy["compoundBlocks"], cfg.policy.compoundBlocks);
 
   const budget = section("budget");
   cfg.budget.enabled = bool(budget["enabled"], cfg.budget.enabled);
