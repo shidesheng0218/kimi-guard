@@ -74,13 +74,13 @@ agentguard doctor     # 自检
 
 ### Harness 支持矩阵
 
-| 能力 | Kimi Code CLI | Claude Code | Codex CLI |
-|---|---|---|---|
-| 循环/抖动/探索漂移检测、保险丝 | ✅ hooks | ✅ hooks | ✅ hooks（shell + `apply_patch`；WebSearch 等托管工具不可观测） |
-| 配额闸门 | ✅ 事件估算 + 官方 API 精确计量（`[budget] precise`） | ✅ 事件估算 | ✅ 事件估算 |
-| 完工闸门（声明 vs 证据） | ✅ | ✅ | ✅ |
-| 检查点/恢复、误报反馈、聚合报告 | ✅ | ✅ | ✅ |
-| `agentguard run` 受监督无人值守运行 | ✅ Wire 协议 | ✅ stream-json 监督 | — |
+| 能力 | Kimi Code CLI | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|---|
+| 循环/抖动/探索漂移检测、保险丝 | ✅ hooks | ✅ hooks | ✅ hooks（shell + `apply_patch`；WebSearch 等托管工具不可观测） | ✅ hooks |
+| 配额闸门 | ✅ 事件估算 + 官方 API 精确计量（`[budget] precise`） | ✅ 事件估算 | ✅ 事件估算 | ✅ 事件估算 |
+| 完工闸门（声明 vs 证据） | ✅ | ✅ | ✅ | ✅ |
+| 检查点/恢复、误报反馈、聚合报告 | ✅ | ✅ | ✅ | ✅ |
+| `agentguard run` 受监督无人值守运行 | ✅ Wire 协议 | ✅ stream-json 监督 | ✅ exec JSON 监督 | — |
 | 轮中纠偏、逐步精确 token 计量 | ✅ | — | — |
 
 - 分析器在内部决定监控哪些工具——hook 观察所有工具，监控清单可随时改配置，无需重装。
@@ -132,6 +132,59 @@ kguard run "重构 auth 模块并让测试通过" \
 - 审批策略：默认带反馈拒绝（headless 安全），`--yolo` 自动批准
 - 在 `~/.kimi-guard/runs/` 下写运行报告（`report.json`）+ 原始 Wire 日志（`wire.jsonl`）
 - 干净结束 exit 0，干预触发的结束 exit 2——对 CI 友好
+
+### `agentguard watch` — 实时驾驶舱
+
+零依赖 TUI，直接读本地状态库：跨 harness 的所有会话、拦截事件流（红灯实时亮起）、配额窗口 + 燃烧率。`q` 退出；`↑/↓` 选中会话，`enter` 展开该会话最近调用，`esc` 返回。
+
+![watch 演示](../assets/demo-watch.gif)
+
+### `agentguard replay` — 带标注的时间轴回放
+
+每次受监督运行都写了原始日志；`agentguard replay` 把它渲染成时间轴——调用、结果、拦截（🔴 高亮）、纠偏、回合。`--speed N` 可倍速播放。这就是失控现场的复盘件。
+
+### `agentguard bench` — 公开基准套件
+
+脚本化的病理场景（循环风暴、无增益空转、假完工声明、思维空转、上下文压力、步数上限）对守卫打分 0–100；另有**误报套件**（正常读代码/收敛迭代/轮询/混合会话）证明"不该拦的绝不拦"。双轴记分：拦截力 × 不误伤。`--harness claude|codex` 可对真实 CLI 跑（观察性）。`--save` 落盘记分牌，给周期性排行榜铺路。
+
+### `agentguard incident` — 事故报告
+
+对任意录制过的 run 生成可分享的 Markdown 失控复盘：失控模式、每次拦截模型收到的完整理由、时间轴、估算省下的请求数。写进 `~/.agent-guard/incidents/`。这是"守卫今天救了我一次"给团队看的证据。
+
+### macOS 桌面集成
+
+```toml
+[notify]                # 拦截时原生桌面通知（osascript，一次性调用）
+enabled = true
+onBlock = true          # 每次拦截
+onKillSwitch = true     # 保险丝（带声音）
+```
+
+菜单栏走 [xbar](https://xbarapp.com/)/[SwiftBar](https://swiftbar.app) 插件协议：`agentguard menubar --install` 写入每分钟刷新的插件；`agentguard menubar` 直接打印状态行。
+
+### 每周摘要（让价值可见）
+
+- `agentguard digest`：调用数、按检测器的拦截分布、**估算省下的请求数**（文档注明是启发式）、配额水位、校准建议
+- `digest --notify` 同时发桌面通知——用自己的 cron/launchd 调度，守卫保持零守护进程
+- `digest --md <file>` 输出可转发的 markdown 版
+
+### CI 中使用（GitHub Action）
+
+```yaml
+- uses: shidesheng0218/kimi-guard@v0
+  with:
+    prompt: "refactor the auth module and make tests pass"
+    harness: claude            # 或 kimi
+    profile: strict            # 无人值守用更严档位
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+干预即 exit 2,job summary 出完整报告，每条拦截变成 PR 标注。
+
+### 阈值档位
+
+`profile = "balanced" | "strict" | "chill"`（配置文件 / `--profile` / `AGENT_GUARD_PROFILE`)。balanced 是出厂默认；strict 提前介入（无人值守）;chill 最大放手。你的显式配置永远最高优先。`agentguard calibrate` 从误报反馈给出逐检测器调整建议（只打印 TOML，不改配置）,`calibrate --apply` 一键采纳豁免项（先备份）。
 
 ## 配置
 

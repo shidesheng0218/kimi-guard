@@ -34,6 +34,7 @@ export function killSwitchDecision(): PolicyDecision {
  */
 export function compoundUpgrade(findings: Finding[], enabled: boolean): Finding[] {
   if (!enabled) return findings;
+  if (findings.some((f) => f.kind === "compound" && f.severity === "block")) return findings; // already upgraded
   const warnKinds = new Set(findings.filter((f) => f.severity === "warn").map((f) => f.kind));
   if (warnKinds.size < 3) return findings;
   return [

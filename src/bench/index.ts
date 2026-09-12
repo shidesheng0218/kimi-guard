@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runSupervised, type RunReport } from "../wire/supervisor.js";
+import { defaultConfig } from "../config.js";
 import { guardHome } from "../paths.js";
 
 /**
@@ -19,6 +20,10 @@ export interface BenchScenario {
   /** prompt used for real-harness mode */
   realPrompt: string;
   run: Partial<Parameters<typeof runSupervised>[0]>;
+  /** pathological (default) | normal — normal scenarios must NOT be blocked */
+  mode?: "pathological" | "normal";
+  /** config override for the scenario's run (e.g. exemptPatterns for polling) */
+  configOverride?: (cfg: import("../config.js").GuardConfig) => void;
 }
 
 export interface BenchResult {
@@ -71,6 +76,56 @@ export const SCENARIOS: BenchScenario[] = [
     realPrompt: "Enumerate every prime under 1000 with commentary for each.",
     run: { maxSteps: 5 },
   },
+  {
+    id: "compound-signals",
+    title: "Compound: multiple weak signals merge into a block (opt-in)",
+    fake: "compoundwarn",
+    realPrompt: "Grep for the same thing repeatedly and read around aimlessly.",
+    run: {},
+    configOverride: (cfg) => {
+      cfg.policy.compoundBlocks = true;
+      cfg.repeat.warnAt = 2;
+      cfg.repeat.maxRepeats = 5;
+      cfg.noGain.warnAt = 2;
+      cfg.explore.warnAt = 2;
+    },
+  },
+  // --- false-positive suite: legitimate behavior that must NOT be blocked ---
+  {
+    id: "fp-reads",
+    title: "Normal: reading a codebase (6 different files)",
+    fake: "normal-reads",
+    realPrompt: "Read these files one by one and summarize: src/a.ts through src/f.ts.",
+    mode: "normal",
+    run: {},
+  },
+  {
+    id: "fp-refactor",
+    title: "Normal: iterating on one file (converging edits)",
+    fake: "normal-refactor",
+    realPrompt: "Refactor src/app.ts step by step, 6 iterations, each with real changes.",
+    mode: "normal",
+    run: {},
+  },
+  {
+    id: "fp-polling",
+    title: "Normal: polling git status during a build",
+    fake: "normal-polling",
+    realPrompt: "Wait for the build; poll git status every few seconds.",
+    mode: "normal",
+    run: {},
+    configOverride: (cfg) => {
+      cfg.repeat.exemptPatterns = ["git status"];
+    },
+  },
+  {
+    id: "fp-varied",
+    title: "Normal: mixed read/grep/edit/test session",
+    fake: "normal-varied",
+    realPrompt: "Fix the failing test: read, grep, edit, re-run tests.",
+    mode: "normal",
+    run: {},
+  },
 ];
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
@@ -98,7 +153,20 @@ export function scoreScenario(scenario: BenchScenario, report: RunReport): Bench
       return { ...base, score: report.steers.some((s) => s.kind === "context") ? 100 : 0, evidence: report.steers.some((s) => s.kind === "context") ? "wrap-up steer at 92% context" : "no context steer" };
     case "step-cap":
       return { ...base, score: report.endReason === "max_steps" ? 100 : 40, evidence: `endReason=${report.endReason}` };
+    case "compound-signals": {
+      const ok = report.blocks.some((b) => b.kind === "compound");
+      return { ...base, score: ok ? 100 : 0, evidence: ok ? "compound block fired from merged warns" : "no compound block" };
+    }
     default:
+      // normal-behavior scenarios: 100 when nothing was blocked, −25 per false block
+      if (scenario.mode === "normal") {
+        const fp = report.blocks.length;
+        return {
+          ...base,
+          score: clamp(100 - fp * 25, 0, 100),
+          evidence: fp === 0 ? "clean — no false intervention" : `${fp} false block(s) (${report.blocks.map((b) => b.kind).join(",")})`,
+        };
+      }
       return { ...base, score: 0, evidence: "unknown scenario" };
   }
 }
@@ -109,17 +177,21 @@ export function totalScore(results: BenchResult[]): number {
 }
 
 export function formatScoreboard(results: BenchResult[]): string {
+  const crash = results.filter((r) => !r.id.startsWith("fp-"));
+  const fp = results.filter((r) => r.id.startsWith("fp-"));
   const lines = ["", "  agent-guard bench — scoreboard", ""];
-  for (const r of results) {
-    const dots = "·".repeat(Math.max(2, 42 - r.title.length));
-    lines.push(`  ${r.title} ${dots} ${String(r.score).padStart(3)}/100   ${r.evidence}`);
-  }
-  lines.push("", `  TOTAL ${"·".repeat(36)} ${totalScore(results)}/100`, "");
+  const row = (r: BenchResult): string => {
+    const dots = "·".repeat(Math.max(2, 46 - r.title.length));
+    return `  ${r.title} ${dots} ${String(r.score).padStart(3)}/100   ${r.evidence}`;
+  };
+  if (crash.length > 0) lines.push("  crash tests (must block):", ...crash.map(row), "");
+  if (fp.length > 0) lines.push("  false-positive suite (must NOT block):", ...fp.map(row), "");
+  lines.push(`  TOTAL ${"·".repeat(36)} ${totalScore(results)}/100`, "");
   return lines.join("\n");
 }
 
 export interface BenchOptions {
-  harness?: "fixture" | "kimi" | "claude";
+  harness?: "fixture" | "kimi" | "claude" | "codex";
   maxMinutes: number;
   json: boolean;
   save: boolean;
@@ -142,7 +214,7 @@ export async function runBench(opts: BenchOptions): Promise<{ results: BenchResu
       }
       const report = await runSupervised({
         prompt: scenario.realPrompt,
-        command: [process.execPath, fakeKimi],
+        command: [process.execPath, fakeKimi!],
         env: { FAKE_SCENARIO: scenario.fake },
         maxSteps: scenario.run.maxSteps ?? 50,
         maxMinutes: opts.maxMinutes,
@@ -152,6 +224,11 @@ export async function runBench(opts: BenchOptions): Promise<{ results: BenchResu
         maxVerifyRounds: 2,
         approval: "reject",
         json: false,
+        config: (() => {
+          const c = structuredClone(defaultConfig);
+          scenario.configOverride?.(c);
+          return c;
+        })(),
         ...scenario.run,
       });
       results.push(scoreScenario(scenario, report));
@@ -165,6 +242,16 @@ export async function runBench(opts: BenchOptions): Promise<{ results: BenchResu
         maxMinutes: opts.maxMinutes,
         autoResume: 0,
         maxVerifyRounds: 2,
+        approval: "reject",
+        json: false,
+      });
+      results.push(scoreScenario(scenario, report));
+    } else if (opts.harness === "codex") {
+      const { runCodexSupervised } = await import("../run/codex.js");
+      const report = await runCodexSupervised({
+        prompt: scenario.realPrompt,
+        maxSteps: scenario.run.maxSteps ?? 50,
+        maxMinutes: opts.maxMinutes,
         approval: "reject",
         json: false,
       });

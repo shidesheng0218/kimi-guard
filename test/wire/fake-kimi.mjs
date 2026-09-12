@@ -9,6 +9,7 @@
  *   maxsteps — reports max_steps_reached immediately
  *   approval — one approval request (records the client's decision), then finishes
  *   dispatch — one Task (subagent dispatch) call, exercising the budget gate
+ *   normal-reads / normal-refactor / normal-polling / normal-varied — legitimate behavior (false-positive suite: must NOT be blocked)
  *   steercap — emits a warn-worthy pattern repeatedly to exercise the steer cap
  * All client decisions are appended to FAKE_LOG (JSONL) for assertions.
  */
@@ -280,6 +281,77 @@ async function runScenario(promptId, userInput) {
     // huge thinking, tiny text → thinking-dominance flag
     event("ContentPart", { type: "think", think: "let me consider... ".repeat(2000) });
     event("ContentPart", { type: "text", text: "ok" });
+    event("TurnEnd", {});
+    respond(promptId, { status: "finished" });
+    return;
+  }
+
+  if (scenario === "compoundwarn") {
+    // three identical calls — at the 3rd PRE, repeat+noGain+explore all warn → compound block
+    for (let i = 1; i <= 3; i++) {
+      if (cancelled) break;
+      await doToolCall(`tc-${i}`, "Grep", { pattern: "same", path: "src" }, "no matches found");
+      await sleep(sleepMs);
+    }
+    event("TurnEnd", {});
+    respond(promptId, { status: "finished" });
+    return;
+  }
+
+  // --- normal-behavior scenarios (false-positive suite: the guard must NOT block) ---
+
+  if (scenario === "normal-reads") {
+    // research a codebase: read several DIFFERENT files in a row
+    const files = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts"];
+    for (const [i, f] of files.entries()) {
+      if (cancelled) break;
+      await doToolCall(`tc-${i}`, "ReadFile", { file_path: f }, `content of ${f}`);
+      await sleep(sleepMs);
+    }
+    event("TurnEnd", {});
+    respond(promptId, { status: "finished" });
+    return;
+  }
+
+  if (scenario === "normal-refactor") {
+    // same file edited repeatedly but content converges (legit iteration)
+    for (let i = 1; i <= 6; i++) {
+      if (cancelled) break;
+      await doToolCall(`tc-${i}`, "WriteFile", { file_path: "src/app.ts", content: `version ${i} with real progress ${"x".repeat(i * 40)}` }, "written");
+      await sleep(sleepMs);
+    }
+    event("TurnEnd", {});
+    respond(promptId, { status: "finished" });
+    return;
+  }
+
+  if (scenario === "normal-polling") {
+    // polling a long build with git status (a legit repeat pattern)
+    for (let i = 1; i <= 5; i++) {
+      if (cancelled) break;
+      await doToolCall(`tc-${i}`, "Shell", { command: "git status --short" }, "M src/app.ts");
+      await sleep(sleepMs);
+    }
+    event("TurnEnd", {});
+    respond(promptId, { status: "finished" });
+    return;
+  }
+
+  if (scenario === "normal-varied") {
+    // mixed read/grep/edit/shell — a healthy working session
+    const calls = [
+      ["ReadFile", { file_path: "src/a.ts" }],
+      ["Grep", { pattern: "TODO", path: "src" }],
+      ["ReadFile", { file_path: "src/b.ts" }],
+      ["Shell", { command: "npm test" }],
+      ["WriteFile", { file_path: "src/a.ts", content: "updated content v1" }],
+      ["Shell", { command: "npm test" }],
+    ];
+    for (const [i, [tool, args]] of calls.entries()) {
+      if (cancelled) break;
+      await doToolCall(`tc-${i}`, tool, args, `ok ${i}`);
+      await sleep(sleepMs);
+    }
     event("TurnEnd", {});
     respond(promptId, { status: "finished" });
     return;

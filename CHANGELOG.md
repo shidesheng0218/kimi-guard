@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0 — 2026-09-09
+
+- 🧪 **False-positive bench suite**: four normal-behavior scenarios (reading a codebase, converging edits, polling during a build, mixed sessions) score the guard on "must NOT block". The dual-axis scoreboard now shows crash tests AND the false-positive suite. The suite already earned its keep: it caught two real FPs on day one — noGain fired on write-tool confirmations and on exempted polling commands (both fixed: edit tools are out of noGain by design, and `repeat.exemptPatterns` now exempts noGain too).
+- 🟠 **Codex headless driver**: `agentguard run --harness codex` supervises `codex exec --json` (thread/turn/item events), with the same kill-switch backstop and token metering.
+- 🧮 **Compound scoring works everywhere**: `compoundBlocks` now applies inside `analyzeCall` itself — the wire supervisor and both headless drivers get it for free (it previously only fired on the hooks path).
+- ⚡ **Performance baseline in CI**: analyzer latency budgets are asserted in tests (analyzeCall <50ms/call at 500-row windows; fingerprint <50ms/1000).
+- 📚 zh README synced with all v1.0–1.6 sections; harness matrices cover all four harnesses.
+
 ## 1.6.0 — 2026-09-08
 
 - 🎯 **Evidence freshness in the completion gate**: verification only counts if the last successful test/build/lint came AFTER the last successful edit. Editing after verifying no longer fools the gate. (`[verify] freshAfterEdits = false` restores the old lenient behavior.)

@@ -92,14 +92,14 @@ Claude Code users can also install via the plugin channel (this repo is a self-h
 
 ### Harness support
 
-| Capability | Kimi Code CLI | Claude Code | Codex CLI |
-|---|---|---|---|
-| Loop / churn / explore detection, kill switch | ✅ hooks | ✅ hooks | ✅ hooks (shell + `apply_patch`; hosted tools like WebSearch are not observable) |
-| Quota gates | ✅ event-based + official-API precise (`[budget] precise`) | ✅ event-based estimates | ✅ event-based estimates |
-| Completion gate (claim vs evidence) | ✅ | ✅ | ✅ |
-| Checkpoints / resume, feedback loop, reports | ✅ | ✅ | ✅ |
-| `agentguard run` supervised headless runs | ✅ Wire protocol | ✅ stream-json supervision | — |
-| Mid-turn steer, exact per-step token metering | ✅ | — | — |
+| Capability | Kimi Code CLI | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|---|
+| Loop / churn / explore detection, kill switch | ✅ hooks | ✅ hooks | ✅ hooks (shell + `apply_patch`; hosted tools like WebSearch are not observable) | ✅ hooks |
+| Quota gates | ✅ event-based + official-API precise (`[budget] precise`) | ✅ event-based estimates | ✅ event-based estimates | ✅ event-based estimates |
+| Completion gate (claim vs evidence) | ✅ | ✅ | ✅ | ✅ |
+| Checkpoints / resume, feedback loop, reports | ✅ | ✅ | ✅ | ✅ |
+| `agentguard run` supervised headless runs | ✅ Wire protocol | ✅ stream-json supervision | ✅ exec JSON supervision | — |
+| Mid-turn steer, exact per-step token metering | ✅ | — | — | — |
 
 <details>
 <summary>What <code>agentguard install</code> writes</summary>

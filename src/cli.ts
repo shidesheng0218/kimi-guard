@@ -522,6 +522,21 @@ program
       console.error("error: a prompt is required (argument or --prompt)");
       process.exit(1);
     }
+    if (opts.harness === "codex") {
+      const { runCodexSupervised } = await import("./run/codex.js");
+      const report = await runCodexSupervised({
+        prompt,
+        command: opts.exec ?? ["codex"],
+        maxSteps: Number(opts.maxSteps),
+        maxMinutes: Number(opts.maxMinutes),
+        approval: opts.yolo ? "approve" : "reject",
+        json: Boolean(opts.json),
+      });
+      if (opts.json) console.log(JSON.stringify(report, null, 2));
+      else console.log(formatReport(report));
+      process.exitCode = report.endReason === "finished" ? 0 : 2;
+      return;
+    }
     if (opts.harness === "claude") {
       const { runClaudeSupervised } = await import("./run/claude.js");
       const report = await runClaudeSupervised({

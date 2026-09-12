@@ -32,6 +32,14 @@ function fmtEvidence(r: CallRow): string {
  * calls (e.g. polling commands like `git status`) never trigger repeat
  * findings. Patterns are matched against the JSON-serialized arguments.
  */
+function safeParse(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
+}
+
 export function isRepeatExempt(proposed: { tool: string; args?: unknown }, cfg: GuardConfig): boolean {
   if (cfg.repeat.exemptPatterns.length === 0) return false;
   let text: string;
@@ -156,9 +164,15 @@ export function analyzeCycles(history: CallRow[], cfg: GuardConfig, now: number)
 export function analyzeNoGain(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
   if (!cfg.noGain.enabled) return allow;
   const since = now - cfg.noGain.windowMinutes * 60_000;
+  // Edit/write tools return uniform confirmations ("written") by design — identical
+  // output from them carries no information-gain signal. Exempt-pattern tools
+  // (polling like `git status`) are exempt too: the user said leave them alone.
+  const edits = editTools(cfg);
   const byPair = new Map<string, number>();
   for (const r of history) {
     if (r.ts < since || !r.output_hash) continue;
+    if (edits.has(r.tool_name)) continue;
+    if (isRepeatExempt({ tool: r.tool_name, args: safeParse(r.args_json) }, cfg)) continue;
     const key = `${r.tool_name}:${r.output_hash}`;
     byPair.set(key, (byPair.get(key) ?? 0) + 1);
   }
@@ -387,7 +401,10 @@ export function trigramJaccard(a: string, b: string): number {
 export function analyzeNoGainFuzzy(history: CallRow[], proposed: { tool: string }, cfg: GuardConfig, now: number): Finding[] {
   if (!cfg.noGain.enabled || !cfg.noGain.fuzzyEnabled) return allow;
   const since = now - cfg.noGain.windowMinutes * 60_000;
-  const outs = history.filter((r) => r.ts >= since && r.tool_name === proposed.tool && r.output_sample);
+  const edits = editTools(cfg);
+  const outs = history.filter(
+    (r) => r.ts >= since && r.tool_name === proposed.tool && r.output_sample && !edits.has(r.tool_name) && !isRepeatExempt({ tool: r.tool_name, args: safeParse(r.args_json) }, cfg),
+  );
   if (outs.length < 2) return allow;
 
   let streak = 0;
@@ -599,6 +616,26 @@ export function analyzeCrossSession(
   ];
 }
 
+// Local copy of the compound rule to avoid an analysis↔policy import cycle.
+function compoundUpgradeLocal(findings: Finding[], enabled: boolean): Finding[] {
+  if (!enabled) return findings;
+  if (findings.some((f) => f.kind === "compound" && f.severity === "block")) return findings; // already upgraded
+  const warnKinds = new Set(findings.filter((f) => f.severity === "warn").map((f) => f.kind));
+  if (warnKinds.size < 3) return findings;
+  return [
+    {
+      kind: "compound",
+      severity: "block",
+      message:
+        `Multiple weak signals at once (${[...warnKinds].join(", ")}): individually each is a warn, ` +
+        `together they mean the agent is stuck. Stop, reassess the approach, and either proceed ` +
+        `differently or end the turn with a summary.`,
+      evidence: `distinct warn kinds=${warnKinds.size}`,
+    },
+    ...findings,
+  ];
+}
+
 export function analyzeCall(
   history: CallRow[],
   proposed: { tool: string; argsHash: string; args: unknown },
@@ -617,9 +654,10 @@ export function analyzeCall(
     ...analyzeEditRevert(history, cfg, now),
     ...analyzeExplore(history, proposed, cfg, now),
   ];
+  const withCompound = compoundUpgradeLocal(findings, cfg.policy.compoundBlocks);
   const rank = { block: 0, warn: 1 } as const;
-  findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
-  return { findings: findings.slice(0, 2) };
+  withCompound.sort((a, b) => rank[a.severity] - rank[b.severity]);
+  return { findings: withCompound.slice(0, 2) };
 }
 
 export { fmtEvidence, fingerprint };

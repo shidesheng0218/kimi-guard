@@ -65,6 +65,9 @@ describe("bench fixture run (integration)", () => {
     const { results, total } = await runBench({ harness: "fixture", maxMinutes: 2, json: false, save: false });
     expect(results).toHaveLength(SCENARIOS.length);
     // the guard passes its own crash tests — every scenario should score > 0
+    const normals = results.filter((r) => r.id.startsWith("fp-"));
+    expect(normals.length).toBeGreaterThanOrEqual(4);
+    expect(normals.every((r) => r.score === 100)).toBe(true);
     expect(results.every((r) => r.score > 0)).toBe(true);
     expect(total).toBeGreaterThan(80);
   }, 120000);
