@@ -60,6 +60,10 @@ export class WireClient {
     const stderr = readline.createInterface({ input: this.proc.stderr! });
     stderr.on("line", (line) => this.opts.onStderr?.(line));
 
+    // If the agent dies, writes to its stdin surface as EPIPE stream errors —
+    // swallow them; the exit handler already reports the death.
+    this.proc.stdin!.on("error", () => {});
+
     const exited = new Promise<never>((_, reject) => {
       this.proc!.once("exit", (code) => {
         this.closed = true;
@@ -123,7 +127,13 @@ export class WireClient {
     if (!this.proc?.stdin || this.closed) return;
     const line = JSON.stringify(msg);
     this.opts.onRawLine?.("out", line);
-    this.proc.stdin.write(line + "\n");
+    // The agent may die between our last read and this write; on Windows that
+    // surfaces as an EPIPE from the stream layer. It must never crash the guard.
+    try {
+      this.proc.stdin.write(line + "\n");
+    } catch {
+      /* agent process is gone — the close handler deals with it */
+    }
   }
 
   private id(): string {
