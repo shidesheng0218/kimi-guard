@@ -137,9 +137,9 @@ describe("estSaved observed streaks", () => {
   });
 
   it("falls back to the coefficient without observations", () => {
-    recordBlock("s", "Grep", "repeat", Date.now());
-    const saved = estSavedFromBlocks(blocksSince(Date.now() - 1000), () => 0);
-    expect(saved).toBe(5);
+    // pure-function contract: no observed streak → the kind's coefficient
+    const block = { id: 1, session_id: "s", tool_name: "Grep", kind: "repeat", ts: 1, feedback: null, reason: null };
+    expect(estSavedFromBlocks([block], () => 0)).toBe(5);
   });
 });
 
