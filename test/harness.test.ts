@@ -161,11 +161,11 @@ describe("gemini config defaults + event translation", () => {
 
 describe("gemini hook e2e (real CLI, gemini payloads)", () => {
   const repoRoot = path.join(import.meta.dirname, "..");
-  const CLI = path.join(repoRoot, "node_modules", ".bin", "tsx");
+  const CLI = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
   function runGeminiHook(event: string, payload: unknown): { code: number; stdout: string; stderr: string } {
     try {
-      const stdout = execFileSync(CLI, ["src/cli.ts", "hook", event, "--harness", "gemini"], {
+      const stdout = execFileSync(process.execPath, [CLI, "src/cli.ts", "hook", event, "--harness", "gemini"], {
         cwd: repoRoot,
         env: { ...process.env },
         input: JSON.stringify(payload),
@@ -240,7 +240,7 @@ describe("claude hook e2e (real CLI, claude payloads)", () => {
 
   function runClaudeHook(event: string, payload: unknown): { code: number; stdout: string; stderr: string } {
     try {
-      const stdout = execFileSync(CLI, ["src/cli.ts", "hook", event, "--harness", "claude"], {
+      const stdout = execFileSync(process.execPath, [CLI, "src/cli.ts", "hook", event, "--harness", "claude"], {
         cwd: repoRoot,
         env: { ...process.env },
         input: JSON.stringify(payload),

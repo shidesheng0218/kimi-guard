@@ -98,10 +98,10 @@ describe("veto cost logging", () => {
 
 describe("canary (proof-of-life, real CLI)", () => {
   const repoRoot = path.join(import.meta.dirname, "..");
-  const CLI = path.join(repoRoot, "node_modules", ".bin", "tsx");
+  const CLI = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
   it("fires synthetic calls through the real hook path and shows the block", () => {
-    const out = execFileSync(CLI, ["src/cli.ts", "canary"], { cwd: repoRoot, env: { ...process.env }, encoding: "utf8" });
+    const out = execFileSync(process.execPath, [CLI, "src/cli.ts", "canary"], { cwd: repoRoot, env: { ...process.env }, encoding: "utf8" });
     expect(out).toContain("guard is LIVE");
     expect(out).toContain("exit 2");
     // canary traffic must be purged — no synthetic blocks in the stats

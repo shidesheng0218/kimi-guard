@@ -156,14 +156,14 @@ describe("digest markdown", () => {
 
 describe("blocks filters (CLI)", () => {
   const repoRoot = path.join(import.meta.dirname, "..");
-  const CLI = path.join(repoRoot, "node_modules", ".bin", "tsx");
+  const CLI = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
   it("filters by kind / session / fp", () => {
     const id1 = recordBlock("sess-aaa", "Grep", "repeat");
     recordBlock("sess-bbb", "Shell", "churn");
     setBlockFeedback(id1, "fp");
     const env = { ...process.env, KIMI_GUARD_HOME: tmp };
-    const run = (args: string[]) => execFileSync(CLI, ["src/cli.ts", "blocks", ...args], { cwd: repoRoot, env, encoding: "utf8" });
+    const run = (args: string[]) => execFileSync(process.execPath, [CLI, "src/cli.ts", "blocks", ...args], { cwd: repoRoot, env, encoding: "utf8" });
     expect(run(["--kind", "repeat"])).toContain("sess-aaa");
     expect(run(["--kind", "repeat"])).not.toContain("sess-bbb");
     expect(run(["--session", "bbb"])).toContain("churn");

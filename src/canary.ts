@@ -20,7 +20,9 @@ export function runCanary(harness: HarnessName = "kimi"): CanaryResult {
   const payload = JSON.stringify({ session_id: session, tool_name: "Grep", tool_input: { pattern: "canary-signal" } });
   const script = path.resolve(process.argv[1]!);
   const repoRoot = path.dirname(path.dirname(script));
-  const hookArgs = script.endsWith(".ts") ? [path.join(repoRoot, "node_modules", ".bin", "tsx"), script] : [script];
+  // cross-platform: invoke the tsx CLI entry via node (the .bin shim is not
+  // executable on Windows)
+  const hookArgs = script.endsWith(".ts") ? [path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"), script] : [script];
   const fire = (event: string) =>
     spawnSync(process.execPath, [...hookArgs, "hook", event, "--harness", harness], { input: payload, encoding: "utf8", timeout: 15000, cwd: repoRoot });
 

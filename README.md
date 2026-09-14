@@ -274,7 +274,9 @@ blocks by detector, token usage. Individual blocks also appear as PR annotations
 `profile = "balanced" | "strict" | "chill"` in config.toml (or `--profile` per run, or `AGENT_GUARD_PROFILE`):
 `balanced` is the shipped default; `strict` intervenes earlier (headless/CI); `chill` is maximally hands-off.
 Your own config keys always override the profile. `agentguard calibrate` suggests per-detector tweaks from
-your false-positive feedback — it prints TOML, it never edits your config.
+your false-positive feedback — it prints TOML, it never edits your config. Hit a false positive anyway?
+[Report it](https://github.com/shidesheng0218/kimi-guard/issues/new?template=false-positive.md) — one paste
+from `agentguard blocks` is all we need; these reports calibrate the public defaults.
 
 ## Configuration
 

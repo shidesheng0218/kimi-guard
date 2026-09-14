@@ -20,11 +20,11 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const CLI = path.join(import.meta.dirname, "..", "node_modules", ".bin", "tsx");
+const CLI = path.join(import.meta.dirname, "..", "node_modules", "tsx", "dist", "cli.mjs");
 
 function runHook(event: string, payload: unknown, cwd: string): { code: number; stderr: string } {
   try {
-    execFileSync(CLI, ["src/cli.ts", "hook", event], {
+    execFileSync(process.execPath, [CLI, "src/cli.ts", "hook", event], {
       cwd,
       env,
       input: JSON.stringify(payload),
@@ -75,7 +75,7 @@ describe("hook e2e (spawns the real CLI)", () => {
   });
 
   it("probe records payloads when enabled via meta", () => {
-    execFileSync(CLI, ["src/cli.ts", "probe", "on"], { cwd: repoRoot, env, encoding: "utf8" });
+    execFileSync(process.execPath, [CLI, "src/cli.ts", "probe", "on"], { cwd: repoRoot, env, encoding: "utf8" });
     runHook("PostToolUse", { session_id: "s", tool_name: "Glob", tool_input: {} }, repoRoot);
     const probeFile = path.join(tmp, "probe.jsonl");
     expect(fs.existsSync(probeFile)).toBe(true);
