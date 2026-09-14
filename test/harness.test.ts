@@ -236,7 +236,7 @@ describe("guard home migration", () => {
 
 describe("claude hook e2e (real CLI, claude payloads)", () => {
   const repoRoot = path.join(import.meta.dirname, "..");
-  const CLI = path.join(repoRoot, "node_modules", ".bin", "tsx");
+  const CLI = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
   function runClaudeHook(event: string, payload: unknown): { code: number; stdout: string; stderr: string } {
     try {
