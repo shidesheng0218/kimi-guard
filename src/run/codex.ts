@@ -8,7 +8,7 @@ import { fingerprint, outputSampleOf, hashOutput } from "../events.js";
 import { loadConfig, type GuardConfig } from "../config.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
-import { notifyDesktop } from "../notify.js";
+import { notify } from "../notify.js";
 import type { RunReport } from "../wire/supervisor.js";
 
 export interface CodexRunOptions {
@@ -176,7 +176,7 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
         if (block) {
           recordBlock(sid(), mapped.tool, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
           report.blocks.push({ tool: mapped.tool, kind: block.kind, message: block.message, ts: Date.now() });
-          if (cfg.notify.enabled && cfg.notify.onBlock) notifyDesktop("🛡️ agent-guard", `blocked ${block.kind} on ${mapped.tool}`);
+          if ((cfg.notify.enabled || cfg.notify.webhookUrl) && cfg.notify.onBlock) notify(cfg, "🛡️ agent-guard", `blocked ${block.kind} on ${mapped.tool}`, { event: "block", kind: block.kind, tool: mapped.tool, session: sid() });
         }
         const blocksInSession = countBlocks(sid(), startedAt - cfg.policy.blockWindowMinutes * 60_000);
         if (cfg.policy.killSwitch && blocksInSession >= cfg.policy.maxBlocksPerSession) {

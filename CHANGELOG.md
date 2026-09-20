@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0 — 2026-09-20
+
+- 📡 **Webhook notifications**: `[notify] webhookUrl = "https://…"` posts every block, kill-switch trip, and `digest --notify` summary as JSON — the channel that works where no desktop exists (CI runners, servers, containers, SSH boxes). Payload carries both `text` and `content` (identical) so Slack-style and Discord-style endpoints accept it as-is; `event`/`kind`/`tool`/`session`/`ts` ride along for smarter bridges. 3s timeout, fire-and-forget, all failures swallowed — notifications can never break the guard.
+- 🔔 **One dispatcher**: all five notification sites (hooks guard, wire supervisor, claude/codex headless drivers, digest) now go through a single `notify()`: macOS desktop when `enabled = true`, webhook whenever `webhookUrl` is set, both when both are. `onBlock`/`onKillSwitch` stay per-event-type preferences and gate both channels.
+- 🧪 Webhook tests run against a local HTTP server: payload shape, non-2xx handling, unreachable-host fail-open.
+
 ## 1.7.0 — 2026-09-09
 
 - 🧪 **False-positive bench suite**: four normal-behavior scenarios (reading a codebase, converging edits, polling during a build, mixed sessions) score the guard on "must NOT block". The dual-axis scoreboard now shows crash tests AND the false-positive suite. The suite already earned its keep: it caught two real FPs on day one — noGain fired on write-tool confirmations and on exempted polling commands (both fixed: edit tools are out of noGain by design, and `repeat.exemptPatterns` now exempts noGain too).

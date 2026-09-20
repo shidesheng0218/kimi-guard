@@ -10,7 +10,7 @@ import { analyzeCall } from "../analysis.js";
 import { loadConfig, type GuardConfig } from "../config.js";
 import { evaluateBudgetGate } from "../meter.js";
 import { refreshPreciseIfStale } from "../precise.js";
-import { notifyDesktop } from "../notify.js";
+import { notify } from "../notify.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
 import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
@@ -389,8 +389,8 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
     if (block) {
       recordBlock(sessionId(), toolName, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
       report.blocks.push({ tool: toolName, kind: block.kind, message: block.message, ts: Date.now() });
-      if (cfg.notify.enabled && cfg.notify.onBlock) {
-        notifyDesktop("🛡️ agent-guard", `blocked ${block.kind} on ${toolName}`);
+      if ((cfg.notify.enabled || cfg.notify.webhookUrl) && cfg.notify.onBlock) {
+        notify(cfg, "🛡️ agent-guard", `blocked ${block.kind} on ${toolName}`, { event: "block", kind: block.kind, tool: toolName, session: sessionId() });
       }
       const blocksInSession = countBlocks(sessionId(), Date.now() - cfg.policy.blockWindowMinutes * 60_000);
       if (cfg.policy.killSwitch && blocksInSession >= cfg.policy.maxBlocksPerSession) {

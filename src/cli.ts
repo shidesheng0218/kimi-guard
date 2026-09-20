@@ -20,7 +20,7 @@ import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
 import { buildCalibrateReport, formatCalibrateReport, applyCalibrate } from "./calibrate.js";
 import { menubarText, installMenubar } from "./menubar.js";
-import { notifyDesktop } from "./notify.js";
+import { notify } from "./notify.js";
 import { buildDigest, formatDigest, formatDigestMarkdown } from "./digest.js";
 import { runCanary } from "./canary.js";
 import { writeIncident, latestRunId } from "./incident.js";
@@ -302,7 +302,7 @@ program
   .command("digest")
   .description("weekly value summary: calls, interventions, estimated requests saved, quota, calibration hints")
   .option("-w, --weeks <n>", "how many weeks to summarize", "1")
-  .option("--notify", "also send the summary as a macOS desktop notification")
+      .option("--notify", "also send the summary as a desktop notification / webhook POST")
   .option("--md <file>", "write the digest as a markdown file (shareable with the team)")
   .option("--json", "print machine-readable digest")
   .action((opts: { weeks: string; notify?: boolean; json?: boolean; md?: string }) => {
@@ -314,7 +314,7 @@ program
     if (opts.json) console.log(JSON.stringify(d, null, 2));
     else console.log(formatDigest(d));
     if (opts.notify) {
-      notifyDesktop("🛡️ agent-guard weekly digest", `${d.calls} calls, ${d.blocksByKind.reduce((a, k) => a + k.n, 0)} interventions, ~${d.estSaved} requests saved`);
+      notify(loadConfig(), "🛡️ agent-guard weekly digest", `${d.calls} calls, ${d.blocksByKind.reduce((a, k) => a + k.n, 0)} interventions, ~${d.estSaved} requests saved`, { event: "digest", forceDesktop: true });
     }
   });
 

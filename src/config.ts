@@ -94,11 +94,12 @@ export interface GuardConfig {
     enabled: boolean;
     warnPercent: number;
   };
-  /** macOS desktop notifications on guard interventions */
+  /** notifications on guard interventions: macOS desktop (enabled) and/or a webhook (webhookUrl) */
   notify: {
     enabled: boolean;
     onBlock: boolean;
     onKillSwitch: boolean;
+    webhookUrl: string;
   };
   churn: {
     enabled: boolean;
@@ -167,7 +168,7 @@ export const defaultConfig: GuardConfig = {
   thinking: { enabled: true, minThinkChars: 20000, maxTextRatio: 0.1 },
   anchor: { enabled: true, everyNPrompts: 5, maxChars: 1000 },
   context: { enabled: true, warnPercent: 85 },
-  notify: { enabled: false, onBlock: true, onKillSwitch: true },
+  notify: { enabled: false, onBlock: true, onKillSwitch: true, webhookUrl: "" },
   noGain: { enabled: true, windowMinutes: 30, warnAt: 3, blockAt: 4, fuzzyEnabled: true, fuzzySimilarity: 0.85, fuzzyWarnAt: 4, fuzzyBlockAt: 6 },
   churn: {
     enabled: true,
@@ -269,6 +270,8 @@ warnPercent = 85          # steer a wrap-up warning when context is this full
 enabled = false           # opt-in — a guard should never spam the desktop by default
 onBlock = true            # notify when a tool call is blocked
 onKillSwitch = true       # notify (with sound) when the kill switch fires
+webhookUrl = ""           # optional: POST blocks/kill-switch/digest to Slack/Discord/飞书 bridge etc.
+                          # works headless (CI/servers) — independent of the desktop channel
 
 [noGain]                  # different args, byte-identical output
 enabled = true
@@ -498,6 +501,7 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   cfg.notify.enabled = bool(notify["enabled"], cfg.notify.enabled);
   cfg.notify.onBlock = bool(notify["onBlock"], cfg.notify.onBlock);
   cfg.notify.onKillSwitch = bool(notify["onKillSwitch"], cfg.notify.onKillSwitch);
+  cfg.notify.webhookUrl = typeof notify["webhookUrl"] === "string" ? notify["webhookUrl"] : cfg.notify.webhookUrl;
 
   const noGain = section("noGain");
   cfg.noGain.enabled = bool(noGain["enabled"], cfg.noGain.enabled);

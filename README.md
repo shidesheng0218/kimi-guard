@@ -226,16 +226,29 @@ deterministic; `--harness claude` drives a real CLI (observational). `--save` ke
 the guard home for a recurring leaderboard. Latest: **100/100 on fixture scenarios**
 ([scoreboard](docs/bench/results/v1.4.0-fixture.json)) — the guard passes its own crash tests.
 
-### macOS desktop integration
+### Notifications: desktop + webhook
 
-Opt-in, zero-daemon:
+Opt-in, zero-daemon. Two independent channels:
 
 ```toml
 [notify]                # native notifications on interventions (osascript, fire-and-forget)
 enabled = true
 onBlock = true          # every block
 onKillSwitch = true     # kill switch, with sound
+webhookUrl = ""         # POST blocks/kill-switch/digest as JSON — works headless (CI, servers, containers)
 ```
+
+The webhook channel is for headless environments where no desktop exists. Each event is a single POST with a
+3s timeout (fire-and-forget, never blocks the guard), payload shaped for Slack/Discord/飞书-style bridges:
+
+```json
+{ "text": "🛡️ agent-guard — blocked repeat on Grep", "content": "…same as text…",
+  "event": "block", "kind": "repeat", "tool": "Grep", "session": "…", "ts": 1758300000000 }
+```
+
+`text`/`content` carry the same string so both Slack-style and Discord-style endpoints accept it. Point it at a
+[Slack incoming webhook](https://api.slack.com/messaging/webhooks), a Discord webhook, or any tiny bridge.
+`agentguard digest --notify` posts the weekly summary to the same URL.
 
 And a menu-bar plugin for [xbar](https://xbarapp.com/)/[SwiftBar](https://swiftbar.app): `agentguard menubar --install`
 writes a per-minute plugin that shows quota windows and the latest block; `agentguard menubar` prints the
@@ -244,8 +257,8 @@ plugin output directly (that's all the protocol is — a script that prints).
 ### Making the value visible (retention by design)
 
 - **`agentguard digest`** — weekly summary: calls, interventions by detector, **estimated requests saved**
-  (heuristic), quota windows, calibration hints. `digest --notify` also sends it as a desktop notification —
-  schedule it from your own cron/launchd and the guard stays daemon-free.
+  (heuristic), quota windows, calibration hints. `digest --notify` also sends it as a desktop notification and
+  webhook POST — schedule it from your own cron/launchd and the guard stays daemon-free.
 - **`agentguard status` / `report --json`** show the same `estSaved` estimate so every block is a visible win.
 - **Project config**: a `.agentguard.toml` at your repo root overrides user config (`defaults < profile < user
   < project`) — team-shared rules checked into the repo. `agentguard config init --project` scaffolds it.

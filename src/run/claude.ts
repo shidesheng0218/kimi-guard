@@ -11,7 +11,7 @@ import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
 import { castVetoVote, collectVetoContext } from "../veto.js";
 import { claudeHooksInstalled } from "../harness/claude.js";
 import { guardHome } from "../paths.js";
-import { notifyDesktop } from "../notify.js";
+import { notify } from "../notify.js";
 import type { RunReport } from "../wire/supervisor.js";
 
 export interface ClaudeRunOptions {
@@ -136,8 +136,8 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
       if (block) {
         recordBlock(sid(), call.name, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
         report.blocks.push({ tool: call.name, kind: block.kind, message: block.message, ts: Date.now() });
-        if (cfg.notify.enabled && cfg.notify.onBlock) {
-          notifyDesktop("🛡️ agent-guard", `blocked ${block.kind} on ${call.name}`);
+        if ((cfg.notify.enabled || cfg.notify.webhookUrl) && cfg.notify.onBlock) {
+          notify(cfg, "🛡️ agent-guard", `blocked ${block.kind} on ${call.name}`, { event: "block", kind: block.kind, tool: call.name, session: sid() });
         }
       }
     }

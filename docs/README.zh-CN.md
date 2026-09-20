@@ -151,21 +151,33 @@ kguard run "重构 auth 模块并让测试通过" \
 
 对任意录制过的 run 生成可分享的 Markdown 失控复盘：失控模式、每次拦截模型收到的完整理由、时间轴、估算省下的请求数。写进 `~/.agent-guard/incidents/`。这是"守卫今天救了我一次"给团队看的证据。
 
-### macOS 桌面集成
+### 通知：桌面 + Webhook
+
+两个独立通道，都是一次性调用、绝不阻塞守卫：
 
 ```toml
 [notify]                # 拦截时原生桌面通知（osascript，一次性调用）
 enabled = true
 onBlock = true          # 每次拦截
 onKillSwitch = true     # 保险丝（带声音）
+webhookUrl = ""         # 以 JSON POST 拦截/保险丝/摘要事件——无人值守环境（CI、服务器、容器）也能收到
 ```
+
+Webhook 通道给没有桌面的 headless 环境用。每个事件一次 POST，3 秒超时，载荷兼容 Slack/Discord/飞书风格的桥接：
+
+```json
+{ "text": "🛡️ agent-guard — blocked repeat on Grep", "content": "…与 text 相同…",
+  "event": "block", "kind": "repeat", "tool": "Grep", "session": "…", "ts": 1758300000000 }
+```
+
+`text`/`content` 内容相同，Slack 风格和 Discord 风格的端点都能直接收。填 [Slack incoming webhook](https://api.slack.com/messaging/webhooks)、Discord webhook 或任意小桥接服务即可。`agentguard digest --notify` 也会把每周摘要 POST 到同一个 URL。
 
 菜单栏走 [xbar](https://xbarapp.com/)/[SwiftBar](https://swiftbar.app) 插件协议：`agentguard menubar --install` 写入每分钟刷新的插件；`agentguard menubar` 直接打印状态行。
 
 ### 每周摘要（让价值可见）
 
 - `agentguard digest`：调用数、按检测器的拦截分布、**估算省下的请求数**（文档注明是启发式）、配额水位、校准建议
-- `digest --notify` 同时发桌面通知——用自己的 cron/launchd 调度，守卫保持零守护进程
+- `digest --notify` 同时发桌面通知和 webhook POST——用自己的 cron/launchd 调度，守卫保持零守护进程
 - `digest --md <file>` 输出可转发的 markdown 版
 
 ### CI 中使用（GitHub Action）

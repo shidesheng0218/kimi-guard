@@ -4,7 +4,7 @@ import { probeLogPath } from "./paths.js";
 import type { GuardConfig } from "./config.js";
 import { analyzeCall, analyzeCrossSession } from "./analysis.js";
 import { isKillSwitchTripped, resolveFindings } from "./policy.js";
-import { notifyDesktop } from "./notify.js";
+import { notify } from "./notify.js";
 import { evaluateBudgetGate } from "./meter.js";
 import { captureCheckpoint } from "./checkpoint.js";
 import { hasEvidence, hasRecentEdits, HOOKS_STOP_BLOCK_REASON } from "./verify.js";
@@ -189,8 +189,10 @@ function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload,
       ? "killSwitch"
       : (analysis.findings.find((f) => f.severity === "block")?.kind ?? "unknown");
     const id = recordBlock(sessionId, call.tool, kind, now, decision.blockReason ?? null);
-    if (cfg.notify.enabled && (killSwitch ? cfg.notify.onKillSwitch : cfg.notify.onBlock)) {
-      notifyDesktop("🛡️ agent-guard", `${killSwitch ? "kill switch — session locked" : `blocked ${kind} on ${call.tool}`}`, { sound: killSwitch });
+    // Fire when the desktop channel is on OR a webhook is configured (webhook is the headless channel);
+    // onBlock/onKillSwitch gate both — they are per-event-type preferences, not channel preferences.
+    if ((cfg.notify.enabled || cfg.notify.webhookUrl) && (killSwitch ? cfg.notify.onKillSwitch : cfg.notify.onBlock)) {
+      notify(cfg, "🛡️ agent-guard", `${killSwitch ? "kill switch — session locked" : `blocked ${kind} on ${call.tool}`}`, { sound: killSwitch, event: killSwitch ? "killSwitch" : "block", kind, tool: call.tool, session: sessionId });
     }
     return { code: 2, stderr: decision.blockReason + feedbackHint(id) };
   }
