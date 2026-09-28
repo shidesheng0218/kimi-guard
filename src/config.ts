@@ -129,6 +129,11 @@ export interface GuardConfig {
     preciseUrl: string;
     preciseCacheSeconds: number;
   };
+  /** stall watchdog: alert when a live session goes silent mid-turn (hung API call, silent wedge) */
+  stall: {
+    enabled: boolean;
+    minutes: number;
+  };
   probe: boolean;
 }
 
@@ -191,6 +196,7 @@ export const defaultConfig: GuardConfig = {
     preciseUrl: "",
     preciseCacheSeconds: 300,
   },
+  stall: { enabled: true, minutes: 10 },
   probe: false,
 };
 
@@ -272,6 +278,11 @@ onBlock = true            # notify when a tool call is blocked
 onKillSwitch = true       # notify (with sound) when the kill switch fires
 webhookUrl = ""           # optional: POST blocks/kill-switch/digest to Slack/Discord/飞书 bridge etc.
                           # works headless (CI/servers) — independent of the desktop channel
+
+[stall]                   # watchdog for SILENCE — a stalled agent produces no tool calls,
+enabled = true            # so every other detector is blind to it. Alert-only (notify channels).
+minutes = 10              # alert when a live session is silent this long mid-turn.
+                          # A running tool (long build) never counts as a stall.
 
 [noGain]                  # different args, byte-identical output
 enabled = true
@@ -502,6 +513,10 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   cfg.notify.onBlock = bool(notify["onBlock"], cfg.notify.onBlock);
   cfg.notify.onKillSwitch = bool(notify["onKillSwitch"], cfg.notify.onKillSwitch);
   cfg.notify.webhookUrl = typeof notify["webhookUrl"] === "string" ? notify["webhookUrl"] : cfg.notify.webhookUrl;
+
+  const stall = section("stall");
+  cfg.stall.enabled = bool(stall["enabled"], cfg.stall.enabled);
+  cfg.stall.minutes = num(stall["minutes"], cfg.stall.minutes);
 
   const noGain = section("noGain");
   cfg.noGain.enabled = bool(noGain["enabled"], cfg.noGain.enabled);

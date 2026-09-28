@@ -11,6 +11,7 @@ import { loadConfig, type GuardConfig } from "../config.js";
 import { evaluateBudgetGate } from "../meter.js";
 import { refreshPreciseIfStale } from "../precise.js";
 import { notify } from "../notify.js";
+import { createStallWatch } from "../stall.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
 import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
@@ -133,6 +134,18 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
   let turnTextChars = 0;
   let turnText = "";
 
+  // Stall watchdog: silence while NO tool is in flight = hung API call or a
+  // silent wedge. pendingToolCalls.size is the in-flight signal — a long
+  // build keeps the map non-empty and never alerts.
+  const stallWatch = cfg.stall.enabled
+    ? createStallWatch({
+        minutes: cfg.stall.minutes,
+        isBusy: () => pendingToolCalls.size > 0,
+        onStall: (idleMin) =>
+          notify(cfg, "🛡️ agent-guard", `no agent activity for ${Math.round(idleMin)}m — possible stall (hung API call or silent wedge)`, { event: "stall", session: runId }),
+      })
+    : null;
+
   const client = new WireClient({
     command: opts.command,
     cwd: opts.cwd,
@@ -140,9 +153,13 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
     onRawLine: rawLog,
     hooks: [{ id: "kguard", event: "PreToolUse", matcher: "", timeout: 10 }],
     onEvent: (type, payload) => {
+      stallWatch?.ping();
       void handleEvent(type, payload);
     },
-    onRequest: (type, payload) => handleRequest(type, payload),
+    onRequest: (type, payload) => {
+      stallWatch?.ping();
+      return handleRequest(type, payload);
+    },
   });
 
   function sessionId(): string {
@@ -501,6 +518,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
       : msg;
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer);
+    stallWatch?.stop();
     client.stop();
   }
 

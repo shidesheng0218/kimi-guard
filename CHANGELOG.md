@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.0 — 2026-09-28
+
+- ⏸️ **Stall watchdog** — the failure mode every tool-call detector is blind to. A stalled agent (hung API call, dead stream, silent wedge) produces *no* events, so loop detectors never see it. Two shapes: supervised runs (`agentguard run --harness kimi|claude|codex`) alert in real time when no event arrives for `[stall] minutes` (default 10) **while no tool is in flight** — a 30-minute build keeps the in-flight counter non-zero and never alerts. On the plain hooks path there is no long-running process to watch with, so the guard reports the stall the moment the session resumes (silence after `Stop`/`Interrupt` is the user thinking; silence after `PreToolUse` is a tool running — neither ever alerts). Delivers through the v1.8.0 channels: webhook and/or desktop.
+- 🌐 **Landscape honesty refresh**: the September entrants (ruslanlap/loopguard, TokenFuse, agentseatbelt) are now in both READMEs, with the two-layer framing — LLM-call-layer spend enforcement (TokenFuse) is complementary to our tool-call-layer behavior enforcement, and transcript watchers are alert-only by construction.
+- 🔧 Perf-budget test hardened: the trigram 1000-iteration budget gets 2x headroom (200→300ms) so loaded CI machines stop flapping; a real algorithmic regression would be an order of magnitude, not 1.5x.
+
 ## 1.8.0 — 2026-09-20
 
 - 📡 **Webhook notifications**: `[notify] webhookUrl = "https://…"` posts every block, kill-switch trip, and `digest --notify` summary as JSON — the channel that works where no desktop exists (CI runners, servers, containers, SSH boxes). Payload carries both `text` and `content` (identical) so Slack-style and Discord-style endpoints accept it as-is; `event`/`kind`/`tool`/`session`/`ts` ride along for smarter bridges. 3s timeout, fire-and-forget, all failures swallowed — notifications can never break the guard.

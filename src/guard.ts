@@ -5,6 +5,7 @@ import type { GuardConfig } from "./config.js";
 import { analyzeCall, analyzeCrossSession } from "./analysis.js";
 import { isKillSwitchTripped, resolveFindings } from "./policy.js";
 import { notify } from "./notify.js";
+import { STALL_SUSPICIOUS_AFTER } from "./stall.js";
 import { evaluateBudgetGate } from "./meter.js";
 import { captureCheckpoint } from "./checkpoint.js";
 import { hasEvidence, hasRecentEdits, HOOKS_STOP_BLOCK_REASON } from "./verify.js";
@@ -77,6 +78,27 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
     (typeof payload["sessionId"] === "string" && payload["sessionId"]) ||
     (typeof payload["session"] === "string" && payload["session"]) ||
     "unknown";
+
+  // Stall backstop (hook path): hooks only fire on activity, so a stall can
+  // only be reported when it ENDS. If the previous event in this session
+  // handed control to the model (PostToolUse etc.) and then nothing happened
+  // for longer than the stall threshold, the session was silently wedged.
+  // Silence after Stop/Interrupt/SessionEnd is the user thinking — never a
+  // stall; silence after PreToolUse is a running tool — never a stall.
+  if (cfg.stall.enabled) {
+    try {
+      const prevTs = Number(getSessionMeta(sessionId, "last_event_ts") ?? "0");
+      const prevEvent = getSessionMeta(sessionId, "last_event") ?? "";
+      setSessionMeta(sessionId, "last_event_ts", String(now));
+      setSessionMeta(sessionId, "last_event", event);
+      const idleMs = now - prevTs;
+      if (prevTs > 0 && STALL_SUSPICIOUS_AFTER.has(prevEvent) && idleMs >= cfg.stall.minutes * 60_000) {
+        notify(cfg, "🛡️ agent-guard", `session resumed after ${Math.round(idleMs / 60_000)}m of silence (last: ${prevEvent}) — it may have been stalled`, { event: "stall", session: sessionId });
+      }
+    } catch {
+      /* fail-open */
+    }
+  }
 
   switch (event) {
     case "PreToolUse":

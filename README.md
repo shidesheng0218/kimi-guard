@@ -58,6 +58,7 @@ agent-guard is not a preset pack — it is a **runtime behavior analysis and enf
 | 🧠 **Thinking dominance** | flags turns that burned ≥20k chars of pure reasoning with ≤10% visible action — fed back as "act more, think less" on the next resume | flag + resume note |
 | 🔁 **Near-duplicate matching** | fuzzy loop detection: arguments differing only in punctuation, case, spacing or order still collapse to one signature | warn → block |
 | 💾 **Checkpoint / resume** | auto-captures an observed "research state" brief (files touched, commands, searches, failed calls) on failure/interrupt/session-end; `kguard resume` prints a paste-ready context block so a resumed session skips re-exploration | recovery |
+| ⏸️ **Stall watchdog** | the failure mode every tool-call detector is blind to: the agent goes *silent* (hung API call, dead stream, silent wedge). Supervised runs alert in real time when no event arrives for N minutes while no tool is in flight (a 30-minute build never alerts); the hooks path reports the stall when the session resumes | alert (webhook/desktop) |
 | 🎮 **`kguard run` (Wire supervisor)** | spawns the agent in Wire mode (JSON-RPC) and supervises it *in-process*: hook decisions with zero exit-code overhead, **mid-turn steering** on warn findings, **exact per-step token metering** from `StatusUpdate`, retry observability (`StepRetry` status codes), approval policy for headless runs, hard step/time caps with `cancel`, auto-resume with checkpoint injection, and a full run report + raw wire log | CI / unattended runs |
 
 Warn-level findings are injected into the model's context (official hooks stdout mechanism) so the agent can correct itself *before* a block becomes necessary. Blocks feed a structured reason back to the model (official exit-code-2 mechanism).
@@ -235,7 +236,11 @@ Opt-in, zero-daemon. Two independent channels:
 enabled = true
 onBlock = true          # every block
 onKillSwitch = true     # kill switch, with sound
-webhookUrl = ""         # POST blocks/kill-switch/digest as JSON — works headless (CI, servers, containers)
+webhookUrl = ""         # POST blocks/kill-switch/stall/digest as JSON — works headless (CI, servers, containers)
+
+[stall]                 # alert when a live session goes silent mid-turn (hung API call, silent wedge)
+enabled = true
+minutes = 10            # a running tool (long build) never counts as a stall
 ```
 
 The webhook channel is for headless environments where no desktop exists. Each event is a single POST with a
@@ -484,21 +489,23 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 
 Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
 
-### The cross-ecosystem landscape (verified 2026-09)
+### The cross-ecosystem landscape (verified 2026-09, refreshed 09-28)
 
-The behavioral-enforcement niche is not just empty in the Kimi ecosystem — a survey of the wider coding-agent tooling space found no shipped equivalent:
+The niche is no longer empty — September alone brought three new entrants. The picture that emerged is a **two-layer world**: some tools govern the *LLM-call* layer (spend), we govern the *tool-call* layer (behavior). They compose; neither replaces the other.
 
 | Tool | Mechanism | What it can/cannot do vs agent-guard |
 |---|---|---|
+| [ruslanlap/loopguard](https://github.com/ruslanlap/loopguard) (3★, new 09-20) | transcript file watcher | Closest detector set (loop / oscillation / stall, Telegram alerts, zero-dep single file). But it tails the transcript — written *after* execution — so it is **alert-only**: the loop has already burned its tokens when the ping arrives. agent-guard blocks the call *before* it runs. |
+| [TokenFuse](https://github.com/TAIPANBOX/tokenfuse) (1★, Rust, v1.4.0) | LLM-call proxy (HTTP 402 kill-switch) | Real-time $-enforcement at the provider boundary — genuinely complementary: it sees the bill rising but not *why* (no tool semantics); we see the loop but estimate cost. A serious setup runs both. |
 | [cc-safety-net](https://github.com/kenryu42/cc-safety-net) (1.5k★, 13 CLIs incl. Kimi Code) | pre-execution hooks | Blocks dangerous commands/secret access — the authorization axis. No loop detection, no quotas, no steering. Proves multi-runtime hooks appetite. |
 | [ccusage](https://github.com/ccusage/ccusage) (18k★) | log analytics | Read-only cost/token reports over 18 agent CLIs. Never blocks. The usage-data layer is commoditized; enforcement is the open layer. |
 | [LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster) (83★) | in-process library | Detector set nearly identical to ours (fuzzy repeat / cycles / output stagnation) — but inside LangGraph/CrewAI apps, not CLIs. Independent convergent evidence the detector taxonomy is right. |
-| [loop-eng/loopguard](https://github.com/loop-eng/loopguard) (0★) | supervisor daemon (SIGSTOP) | Multi-runtime loop watching with $-caps, but freezes the process and posts a desktop notification — useless headless, no steering, no semantics. |
+| [loop-eng/loopguard](https://github.com/loop-eng/loopguard) (0★, stale since 07-24) | supervisor daemon (SIGSTOP) | Multi-runtime loop watching with $-caps, but freezes the process and posts a desktop notification — useless headless, no steering, no semantics. |
 | [claudewatch](https://github.com/blackwell-systems/claudewatch) (9★, stalled) | PostToolUse hooks + MCP | Closest prior art for hook-feedback steering ("you're looping, call get_blockers()") — Claude Code only, inactive since 2026-03. |
 | [ralph](https://github.com/frankbria/ralph-claude-code) (9.6k★) | shell wrapper loop | Exit gates and rate limits at iteration boundaries only — works around runaway agents by restarting, doesn't govern them. |
 | NeMo Guardrails / Guardrails AI / Langfuse / LangSmith / Helicone | content rails / SDK / proxy / SaaS | Structurally cannot intercept a local CLI's tool calls: proxies see only model HTTP traffic, content validators see text, observability is after-the-fact. |
 
-**The takeaway:** monitors are commoditized, security hooks are crowded, orchestration is well-served — behavioral, semantic, mid-run enforcement of a local coding CLI is the layer nobody else ships. agent-guard's moat is the combination, not any single feature: hook/Wire access point × semantic detectors × subscription-aware budgeting — now running on two harnesses (Kimi Code + Claude Code), with the pure-function analyzer core ([PORTING.md](docs/PORTING.md)) ready for more.
+**The takeaway:** detection alone is now table stakes — three entrants shipped it this month. What nobody else ships is the combination: **pre-execution interception** (not post-hoc alerts) × **mid-turn steering** × **false-positive engineering** (a public FP suite; competitors ship fuzzy detection off-by-default because they can't prove it won't misfire) × **subscription-aware budgeting**. agent-guard is the tool-call-layer guard; pair it with an LLM-proxy like TokenFuse if you also want hard dollar caps.
 
 ## Compatibility
 

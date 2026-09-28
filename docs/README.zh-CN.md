@@ -52,6 +52,7 @@ agent-guard 不是预设包，而是一个**运行时行为分析与执行引擎
 | 🧠 **思维占比** | 标记烧了 ≥2 万字符纯推理、可见动作 ≤10% 的轮次——下次续跑时回传"多动手少空想" | 标记 + 续跑提示 |
 | 🔁 **近似重复匹配** | 模糊循环检测：参数仅在标点/大小写/空格/顺序上不同的调用仍折叠为同一签名 | 警告 → 阻断 |
 | 💾 **快照/恢复** | 失败/中断/会话结束时自动捕获"研究状态简报"（动过的文件、跑过的命令、搜索轨迹、失败调用）；`kguard resume` 输出可直接粘贴的上下文块，恢复的会话不再重新探索 | 恢复 |
+| ⏸️ **停滞看门狗** | 所有工具调用检测器的共同盲区：Agent *静默*了（API 挂死、流断开、无声楔死）。监督模式在"无事件 N 分钟且无工具在飞"时实时告警（30 分钟的构建永远不会误报）;hooks 路径在会话恢复时补报刚结束的停滞 | 告警（webhook/桌面） |
 | 🎮 **`kguard run`（Wire 监督者）** | 以 Wire 模式（JSON-RPC）拉起 Agent 并**进程内**监督：HookRequest 编程式阻断（零 exit code 开销）、warn 级发现的**轮中纠偏（steer）**、基于 `StatusUpdate` 的**每步精确 token 计量**、重试风暴观测（`StepRetry` 带 429 状态码）、headless 审批策略、步数/时长硬上限（官方 `cancel`）、注入快照的自动续跑、完整运行报告 + 原始 Wire 日志 | CI / 无人值守 |
 
 警告级发现通过官方 stdout 机制注入模型上下文，让 Agent **在阻断发生前自我纠正**；阻断时把结构化原因回传给模型（官方 exit code 2 机制）。
@@ -160,7 +161,11 @@ kguard run "重构 auth 模块并让测试通过" \
 enabled = true
 onBlock = true          # 每次拦截
 onKillSwitch = true     # 保险丝（带声音）
-webhookUrl = ""         # 以 JSON POST 拦截/保险丝/摘要事件——无人值守环境（CI、服务器、容器）也能收到
+webhookUrl = ""         # 以 JSON POST 拦截/保险丝/停滞/摘要事件——无人值守环境（CI、服务器、容器）也能收到
+
+[stall]                 # 停滞看门狗：活跃会话在轮中静默超时（API 挂死、静默楔死）时告警
+enabled = true
+minutes = 10            # 正在运行的工具（长时间构建）永远不算停滞
 ```
 
 Webhook 通道给没有桌面的 headless 环境用。每个事件一次 POST，3 秒超时，载荷兼容 Slack/Discord/飞书风格的桥接：
@@ -389,21 +394,23 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 
 值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。agent-guard 与 [kimi-boost](https://github.com/shidesheng0218/kimi-boost) 出自同一作者，按产品线设计成一对：boost 管授权轴，guard 管行为轴。
 
-### 跨生态竞品格局（2026-09 核实）
+### 跨生态竞品格局（2026-09 核实，09-28 刷新）
 
-行为执行层这个生态位不只是 Kimi 生态空缺——对更广的 coding agent 工具链做了一轮调研，没有找到已发布的等价物：
+这个生态位不再空缺——仅九月就冒出了三个新入场者。格局呈现出清晰的**双层世界**：一类工具治理 *LLM 调用层*（花钱），我们治理 *工具调用层*（行为）。两层互补，互不替代。
 
 | 工具 | 机制 | 与 agent-guard 的对比 |
 |---|---|---|
+| [ruslanlap/loopguard](https://github.com/ruslanlap/loopguard)（3★，09-20 新建） | 转录文件监视 | 检测器集合最接近（循环/振荡/停滞 + Telegram 告警，零依赖单文件）。但它 tail 的是转录文件——执行*之后*才写入——所以**只能告警不能拦截**：Telegram 响的时候额度已经烧完了。agent-guard 在调用执行*之前*拦截。 |
+| [TokenFuse](https://github.com/TAIPANBOX/tokenfuse)（1★，Rust，v1.4.0） | LLM 调用代理（HTTP 402 熔断） | 在 Provider 边界做实时美元级执行——真正的互补品：它看见账单在涨但不知道*为什么*（没有工具语义）；我们看见循环本身但成本是估算。认真的团队两个都装。 |
 | [cc-safety-net](https://github.com/kenryu42/cc-safety-net)（1.5k★，13 个 CLI 含 Kimi Code） | 执行前 hooks | 拦危险命令/密钥访问——授权轴。无循环检测、无配额、无纠偏。证明了多 runtime hooks 的市场需求。 |
 | [ccusage](https://github.com/ccusage/ccusage)（18k★） | 日志分析 | 覆盖 18 个 agent CLI 的只读用量报表，从不拦截。用量数据层已经商品化，执行层才是空缺。 |
 | [LoopBuster](https://github.com/liuchunwei732-cmyk/loopbuster)（83★） | 进程内库 | 检测器集合与我们的几乎一一对应（模糊重复/循环/输出停滞）——但跑在 LangGraph/CrewAI 应用里，管不到 CLI。独立收敛的证据：检测器分类学是对的。 |
-| [loop-eng/loopguard](https://github.com/loop-eng/loopguard)（0★） | 监督守护进程（SIGSTOP) | 多 runtime 循环监视 + 美元上限，但只会冻结进程发桌面通知——无人值守场景没用，无纠偏、无语义。 |
+| [loop-eng/loopguard](https://github.com/loop-eng/loopguard)（0★，07-24 起停更） | 监督守护进程（SIGSTOP) | 多 runtime 循环监视 + 美元上限，但只会冻结进程发桌面通知——无人值守场景没用，无纠偏、无语义。 |
 | [claudewatch](https://github.com/blackwell-systems/claudewatch)（9★，已停更） | PostToolUse hooks + MCP | hook 反馈纠偏最接近的前作（"你在循环了，调用 get_blockers()"）——仅 Claude Code，2026-03 起停更。 |
 | [ralph](https://github.com/frankbria/ralph-claude-code)（9.6k★） | shell 包装循环 | 只在迭代边界做退出闸门和限速——靠重启"绕过"失控 agent，不是治理它。 |
 | NeMo Guardrails / Guardrails AI / Langfuse / LangSmith / Helicone | 内容护栏 / SDK / 代理 / SaaS | 结构上无法拦截本地 CLI 的工具调用：代理只见模型 HTTP 流量，内容校验器只见文本，可观测平台是事后分析。 |
 
-**结论：** 监控已商品化、安全 hooks 已拥挤、编排已有人做——本地 coding CLI 的行为级、语义化、运行中执行层是没人交付的那一层。agent-guard 的护城河是组合而非单点：hook/Wire 接入点 × 语义检测器 × 订阅感知的预算模型。已跑通双 harness（Kimi Code + Claude Code）；分析器核心是纯函数（[PORTING.md](docs/PORTING.md)），正是为了让适配器能拓宽它。
+**结论：** 单纯检测这个月已成标配——三个新入场者都做到了。没人交付的是组合：**执行前拦截**（而非事后告警）× **轮中纠偏** × **误报工程**（公开的误报套件；竞品的模糊检测默认关闭，因为它们证明不了不误伤）× **订阅感知预算**。agent-guard 是工具调用层的守卫；需要硬性美元上限就再配一个 LLM 代理（如 TokenFuse)。分析器核心是纯函数（[PORTING.md](docs/PORTING.md)），正是为了让适配器能拓宽它。
 
 ## 兼容性
 

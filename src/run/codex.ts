@@ -9,6 +9,7 @@ import { loadConfig, type GuardConfig } from "../config.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
 import { notify } from "../notify.js";
+import { createStallWatch } from "../stall.js";
 import type { RunReport } from "../wire/supervisor.js";
 
 export interface CodexRunOptions {
@@ -107,6 +108,20 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
     }
   };
 
+  // Stall watchdog: no events for N minutes while no tool item is in flight
+  // means the agent went silent mid-turn. agent_message generation does NOT
+  // count as busy — a hung generation is exactly what we want to catch;
+  // a running command_execution (long build) does and never alerts.
+  let inFlightTools = 0;
+  const stallWatch = cfg.stall.enabled
+    ? createStallWatch({
+        minutes: cfg.stall.minutes,
+        isBusy: () => inFlightTools > 0,
+        onStall: (idleMin) =>
+          notify(cfg, "🛡️ agent-guard", `no agent activity for ${Math.round(idleMin)}m — possible stall (hung API call or silent wedge)`, { event: "stall", session: runId }),
+      })
+    : null;
+
   await new Promise<void>((resolve) => {
     const args = [
       ...binArgs,
@@ -127,11 +142,16 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
     killTimer.unref();
 
     rl.on("line", (line) => {
+      stallWatch?.ping();
       appendLog(line);
       let ev: CodexEvent;
       try {
         ev = JSON.parse(line) as CodexEvent;
       } catch {
+        return;
+      }
+      if (ev.type === "item.started" && ev.item && toolNameFor(ev.item)) {
+        inFlightTools++;
         return;
       }
       if (ev.type === "thread.started" && ev.thread_id) {
@@ -157,6 +177,7 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
         }
         const mapped = toolNameFor(ev.item);
         if (!mapped) return;
+        inFlightTools = Math.max(0, inFlightTools - 1);
         report.toolCalls++;
         report.steps++;
         recordCall({
@@ -203,6 +224,7 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
       resolve();
     });
   });
+  stallWatch?.stop();
 
   if (report.endReason === "kill-switch") captureCheckpoint(sid(), "kill-switch", Date.now(), cfg);
   if (finalText) recordEvent(sid(), "final_text", { chars: finalText.length });

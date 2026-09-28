@@ -1,8 +1,8 @@
-# Reddit drafts (v1.4.0)
+# Reddit drafts (v1.9.0)
 
 ## r/ClaudeAI
 
-**Title:** I built a behavioral guard for Claude Code (hooks) — it catches runaway loops, verifies "all tests pass" claims, and shows you what it saved you
+**Title:** I built a behavioral guard for Claude Code (hooks) — it catches runaway loops, verifies "all tests pass" claims, alerts on stalls, and shows you what it saved you
 
 **Body:**
 
@@ -21,6 +21,8 @@ Stuff I wish existed earlier:
 - **Completion gate**: "all tests pass" claims are checked against the actual recorded command history. No evidence → corrective round.
 - **Canary**: `agentguard canary` proves the guard is wired in 10 seconds — fires synthetic repeats through the real hook path and shows the block.
 - **Headless supervision**: `agentguard run --harness claude` drives `claude -p` with hard turn/time caps, checkpoint auto-resume, and a kill switch. Built for CI.
+- **Stall watchdog** (new): every loop detector is blind to the agent that goes *silent* — hung API call, dead stream. Supervised runs alert when nothing has happened for N minutes while no tool is in flight (a 30-minute build never alerts; a hung stream does).
+- **Webhook alerts** (new): blocks, kill-switch trips and stalls POST to any Slack/Discord-style webhook — the alert channel that actually works on CI runners and headless boxes. Weekly digest posts there too.
 - **Weekly digest**: tells you what the guard stopped and roughly how many requests it saved you — because a good guard is invisible, and invisibility is how you forget you have it.
 
 Also installable as a plugin: `/plugin marketplace add shidesheng0218/kimi-guard` → `/plugin install agent-guard@agentguard`.

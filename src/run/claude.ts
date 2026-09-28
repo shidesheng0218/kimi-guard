@@ -12,6 +12,7 @@ import { castVetoVote, collectVetoContext } from "../veto.js";
 import { claudeHooksInstalled } from "../harness/claude.js";
 import { guardHome } from "../paths.js";
 import { notify } from "../notify.js";
+import { createStallWatch } from "../stall.js";
 import type { RunReport } from "../wire/supervisor.js";
 
 export interface ClaudeRunOptions {
@@ -102,6 +103,19 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
   let attempt = 0;
   let currentPrompt = opts.prompt;
   let timedOut = false;
+  let activeToolCalls = 0;
+
+  // Stall watchdog: no stream lines for N minutes while no tool is running
+  // means the model/API went silent mid-turn. A long-running tool keeps
+  // activeToolCalls > 0 and never alerts.
+  const stallWatch = cfg.stall.enabled
+    ? createStallWatch({
+        minutes: cfg.stall.minutes,
+        isBusy: () => activeToolCalls > 0,
+        onStall: (idleMin) =>
+          notify(cfg, "🛡️ agent-guard", `no agent activity for ${Math.round(idleMin)}m — possible stall (hung API call or silent wedge)`, { event: "stall", session: runId }),
+      })
+    : null;
 
   const sid = () => sessionId || runId;
 
@@ -174,6 +188,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
       killTimer.unref();
 
       rl.on("line", (line) => {
+        stallWatch?.ping();
         appendLog(line);
         let msg: StreamMsg;
         try {
@@ -193,6 +208,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
             report.steps++;
             for (const block of msg.message?.content ?? []) {
               if (block["type"] === "tool_use") {
+                activeToolCalls++;
                 pending.set(String(block["id"]), { name: String(block["name"]), input: block["input"] });
               }
             }
@@ -210,6 +226,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
                       ? content.map((c) => (c && typeof c === "object" ? String((c as Record<string, unknown>)["text"] ?? "") : "")).join("\n")
                       : JSON.stringify(content ?? "");
                 if (call) {
+                  activeToolCalls = Math.max(0, activeToolCalls - 1);
                   pending.delete(String(block["tool_use_id"]));
                   onToolResult(call, text, Boolean(block["is_error"]));
                 }
@@ -309,6 +326,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
     break;
   }
 
+  stallWatch?.stop();
   if (report.endReason === "kill-switch") captureCheckpoint(sid(), "kill-switch", Date.now(), cfg);
 
   report.durationMs = Date.now() - startedAt;
