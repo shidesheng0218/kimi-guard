@@ -1,69 +1,73 @@
 # Twitter/X 发布素材包（v1.9.0）— 复制即发
 
-每条都 ≤280 字符，无 Premium 也能发。配图见各条标注。
+写法原则：像人在抱怨，不像产品在宣讲。每条 ≤280 字符（已按 Twitter 计权验证：中日文按 2 计）。
 
 ---
 
 ## 0. 账号 Bio（发布前先改好）
 
 ```
-Building agent-guard 🛡️ — stops runaway AI coding agents before they burn your quota. Pre-execution interception, zero daemon. MIT.
+made agent-guard 🛡️ because my agent grepped itself into bankruptcy. it blocks runaway AI agent loops before your quota dies. MIT, zero daemon.
 ```
 
 ---
 
 ## 1. 英文主 Thread（7 条，一口气发完）
 
-**Tweet 1/7**（配图：`assets/social-post/twitter-card.png`）:
+**Tweet 1/7**:
 
 ```
-My coding agent ran the same grep 76 times in a headless CI run and burned my entire 5-hour quota. Nothing stopped it.
+last month my agent grepped the same pattern 76 times in a row. headless CI run, nobody home. it ate my entire 5-hour quota before I woke up.
 
-So I built the thing that does: agent-guard 🛡️ open source 🧵
+so I did what any reasonable person does: built a guard instead of just setting a step limit 🧵
 ```
 
-**Tweet 2/7**:
+**Tweet 2/7**（配图：`assets/social-post/twitter-card.png`）:
 
 ```
-It's a behavior guard, not a permission checker. It catches the *patterns* of a stuck agent: repeated identical calls, A→B→A cycles, identical outputs from different args, file edit thrashing, exploration streaks.
+here's what a block looks like:
+
+'you've called Grep 3 times with identical arguments. the results are already in your context — use them.'
+
+that's it. no wall, no ban. the model reads why it's blocked and usually stops. a block with a reason beats a silent denial.
 ```
 
 **Tweet 3/7**:
 
 ```
-Intervention is a ladder, not a brick wall: warn in context → block with a corrective reason → kill switch that orders the agent to summarize and stop.
+it also catches the subtler spins: A→B→A→B cycles, outputs that come back byte-identical no matter how you shuffle the args, same file edited 10 times without converging.
 
-Fail-open by design: if the guard itself breaks, the agent keeps working.
+favorite: 'all tests pass' gets checked against your actual command history. no test run → no claim.
 ```
 
 **Tweet 4/7**:
 
 ```
-The sneaky failure mode: not loops — *silence*. A hung API call produces zero events, so every loop detector is blind to it.
+new in v1.9: stall detection. loops are loud, silence is worse — a hung API call produces zero events, invisible to every loop detector.
 
-v1.9 adds a stall watchdog: silent for N min while no tool runs → webhook alert. A 30-min build never triggers it.
+now: agent quiet for 10 min while nothing's running → slack ping. your 30-minute build never trips it.
 ```
 
 **Tweet 5/7**:
 
 ```
-Everything POSTs to your Slack/Discord webhook now — blocks, kill-switch trips, stalls, and the weekly "what the guard saved you" digest.
+everything ships to one webhook: blocks, kill-switch trips, stalls, and a weekly "here's what i saved you" digest.
 
-Built for CI runners and headless boxes where no desktop exists.
+built for CI runners where no desktop exists — which is exactly where runaway agents do their best damage.
 ```
 
-**Tweet 6/7**（配图/GIF：`assets/demo-watch.gif`）:
+**Tweet 6/7**（配 GIF：`assets/demo-watch.gif`）:
 
 ```
-Proving it works takes 10s: agentguard canary fires synthetic repeats through the real hook pipeline and shows the block — with the exact reason the model sees.
+the part i care about most: proving it DOESN'T block normal work. agentguard bench scores a false-positive suite (reading code, converging edits, polling) right next to the crash tests.
 
-Plus a public false-positive suite proving the guard never blocks normal work.
+competitors ship fuzzy detection off by default. mine is on. because it's tested.
 ```
 
 **Tweet 7/7**:
 
 ```
-Works on Kimi Code, Claude Code, Codex, Gemini CLI via their hooks. GitHub Action for CI. Zero daemon, zero proxy, local SQLite only.
+zero daemon, zero proxy, local sqlite, fail-open — if the guard breaks, your agent keeps working. works on Kimi Code, Claude Code, Codex, Gemini CLI.
 
 npm i -g @shidesheng0218/agentguard
 github.com/shidesheng0218/kimi-guard
@@ -71,50 +75,49 @@ github.com/shidesheng0218/kimi-guard
 
 ---
 
-## 2. 中文版（发完英文 thread 后，quote-tweet 挂在 7/7 下面）
+## 2. 中文版（发完英文后 quote-tweet 挂在 7/7 下）
 
 ```
-中文版：给 AI 编程 Agent 装的行为熔断器 🛡️
+我的 agent 曾在无人值守的 CI 里把同一条 grep 连跑 76 次,烧穿 5 小时配额,打开电脑它还在跑。
 
-同一命令连跑 76 次、烧穿 5 小时配额的事故——执行前就拦住，而不是事后告警。
+一怒之下写了个熔断器:重复调用第 4 次直接拦,理由喂回给模型,大多数循环到这就停了。静默挂死也会 webhook 告警。
 
-13 个检测器 + 停滞看门狗 + Slack/Discord webhook 告警，支持 Kimi Code / Claude Code / Codex / Gemini CLI。开源 MIT：
-
-npm i -g @shidesheng0218/agentguard
+支持 Kimi/Claude Code/Codex/Gemini,开源:
+github.com/shidesheng0218/kimi-guard
 ```
 
 ---
 
 ## 3. 预置 FAQ 回复（评论区直接粘贴，微调后用）
 
-**Q: "How is this different from loopguard / X?"**
+**Q: "How is this different from loopguard / transcript watchers?"**
 
 ```
-Transcript watchers (e.g. ruslanlap/loopguard) tail the session file — written AFTER execution — so they can only alert once the tokens are burned. agent-guard blocks the call BEFORE it runs (exit 2 + corrective reason).
+those tail the transcript file, which is written AFTER the call runs. so they alert you about the fire. agent-guard is the sprinkler: blocks call #4 before it executes.
 ```
 
 **Q: "TokenFuse / cost caps already do this?"**
 
 ```
-Different layer, complementary: TokenFuse proxies LLM calls and enforces $-caps (sees the bill, not the behavior). agent-guard sees tool semantics — it knows "grep ×3 same args" is a loop, not progress. Serious setups can run both.
+different layer. it meters $$ at the API boundary — sees the bill, not the behavior. we see tool semantics: we know grep×3 is a spin, not progress. they compose.
 ```
 
 **Q: "Won't Anthropic/OpenAI just build this in?"**
 
 ```
-Maybe eventually — their issue trackers are full of these reports (1,170 "loop"-titled issues in claude-code alone). Until then this guards all 4 CLIs with one config, and it's fail-open + deterministic (no LLM judge in the loop).
+their issue tracker already has 1,170 'loop'-titled reports, so maybe. until then: one config guards 4 CLIs, and it's deterministic — no LLM judging your agent's calls.
 ```
 
 **Q: "Doesn't it false-positive on legit work?"**
 
 ```
-That's the part I'm most proud of: agentguard bench ships a false-positive suite (reading codebases, converging edits, polling) scored alongside crash tests — dual-axis 100/100. Fuzzy detection is ON by default because we can prove it doesn't misfire.
+fair worry — that's why the repo ships a public false-positive suite scored next to the crash tests. fuzzy detection stays ON by default here, because it's tested.
 ```
 
-**Q: "Windows/WSL?"**
+**Q: "Windows?"**
 
 ```
-CI matrix runs Ubuntu + Windows on Node 22/24. macOS gets desktop notifications; Linux/CI use the webhook channel.
+CI matrix runs Ubuntu + Windows, Node 22/24. macOS gets desktop notifications; Linux/CI use the webhook.
 ```
 
 ---
@@ -123,9 +126,9 @@ CI matrix runs Ubuntu + Windows on Node 22/24. macOS gets desktop notifications;
 
 | 素材 | 路径 | 用于 | 状态 |
 |---|---|---|---|
-| 事故拦截卡（主图） | `assets/social-post/twitter-card.png` | Tweet 1 | ✅ 1100×400，131KB |
+| 事故拦截卡（主图） | `assets/social-post/twitter-card.png` | Tweet 2 | ✅ 1100×400，131KB |
 | TUI 实时拦制动图 | `assets/demo-watch.gif` | Tweet 6 | ✅ 195KB |
-| Banner（账号头图） | `assets/banner.svg` → 需导出 PNG | 个人主页 | 需自行导出（sips 不支持 svg，可用浏览器截图） |
+| Banner（账号头图） | `assets/banner.svg` → 需导出 PNG | 个人主页 | 需自行导出 |
 
 ## 5. 发布后 48 小时提醒
 
