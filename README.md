@@ -168,6 +168,7 @@ kguard checkpoint       # capture a research-state checkpoint now
 kguard resume           # print a paste-ready context block from the latest checkpoint
 kguard run -- <prompt>  # supervised headless run in Wire mode (see below)
 kguard doctor           # verify node/state db/config/PATH/probe
+agentguard clean [--dry-run]  # prune old runs/checkpoints/incidents + tighten permissions
 kguard probe on|off|show [−n N]   # capture raw hook payloads
 kguard config init|show|get <key> # manage ~/.kimi-guard/config.toml
 kguard hook <event>     # (used by the CLI, reads JSON from stdin)
@@ -199,7 +200,7 @@ What the supervisor does (Kimi, Wire protocol — in-process, no exit codes):
 - **kill switch**: after N blocks it cancels the turn and checkpoints
 - approval policy: default rejects with feedback (headless-safe), `--yolo` approves
 - writes a run report (`report.json`) + raw wire log (`wire.jsonl`) under `~/.agent-guard/runs/`
-- exit code 0 on clean finish, 2 on any intervention-triggered end — CI-friendly
+- exit code 0 only when the run finished cleanly with zero interventions; 2 when the guard intervened (any block, including ones recorded by the installed hooks) or the run ended abnormally — CI-friendly
 
 The Claude driver (`--harness claude`) spawns `claude -p --output-format stream-json` and supervises the
 event stream: same analyzers and state db (shared with the installed hooks, which do the actual blocking),
@@ -267,8 +268,16 @@ plugin output directly (that's all the protocol is — a script that prints).
 - **`agentguard status` / `report --json`** show the same `estSaved` estimate so every block is a visible win.
 - **Project config**: a `.agentguard.toml` at your repo root overrides user config (`defaults < profile < user
   < project`) — team-shared rules checked into the repo. `agentguard config init --project` scaffolds it.
+  **Trust boundary:** a repo file is untrusted input. It may tune thresholds/exemptions, but `[notify]`,
+  `[verify.veto]`, `budget.precise` and `budget.preciseUrl` are ignored from project files — network and
+  credential settings are user-config only. `agentguard status` lists any ignored keys.
 - **`agentguard config export` / `import <file>`** — your tuned thresholds and exemptions become a portable,
   shareable asset (backup before every import).
+
+- **Local data stays local (and owner-only)**: the state db, probe log, run logs, checkpoints and
+  incidents are created `0700`/`0600`; `[retention]` + `agentguard clean` prune old artifacts. The db
+  stores tool arguments (2KB) and output samples (1KB) for loop detection — treat `~/.agent-guard` as
+  sensitive on shared machines.
 
 ### Use in CI (GitHub Action)
 
@@ -367,6 +376,14 @@ reservePercent = 10     # headroom the agent is never allowed to eat
 subagentWeight = 5      # ~requests each dispatched subagent costs
 precise = false         # poll the official Kimi usage API for exact windows (needs KIMI_API_KEY, sk-kimi-...)
                         # falls back to event-based estimates on any error — fail-open
+                        # windows are ACCOUNT-wide: all local sessions of the same harness count
+                        # (`agentguard budget --session <id>` scopes a debug snapshot only)
+
+[retention]             # on-disk artifacts (DB traffic is pruned separately, 30d)
+runsDays = 30           # raw run logs (wire.jsonl/stream.jsonl — full model output)
+checkpointsDays = 30
+incidentsDays = 90
+                        # 0 disables a category; `agentguard clean` runs it on demand
 ```
 
 ## How it works

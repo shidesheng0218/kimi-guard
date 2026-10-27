@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { recordCall, recordEvent, recordBlock, countBlocks, callsSince, openDb } from "../store.js";
+import { mergeHookBlocks } from "./blocks.js";
 import { analyzeCall } from "../analysis.js";
 import { fingerprint, outputSampleOf, hashOutput, extractFile } from "../events.js";
 import { loadConfig, type GuardConfig } from "../config.js";
@@ -11,6 +11,7 @@ import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
 import { castVetoVote, collectVetoContext } from "../veto.js";
 import { claudeHooksInstalled } from "../harness/claude.js";
 import { guardHome } from "../paths.js";
+import { appendPrivateFile, ensurePrivateDir, writePrivateFile } from "../fsSecure.js";
 import { notify } from "../notify.js";
 import { createStallWatch } from "../stall.js";
 import type { RunReport } from "../wire/supervisor.js";
@@ -66,7 +67,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
   const cfg = opts.config ?? loadConfig(undefined, "claude");
   const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
   const logDir = path.join(guardHome(), "runs", runId);
-  fs.mkdirSync(logDir, { recursive: true });
+  ensurePrivateDir(logDir);
   const logPath = path.join(logDir, "stream.jsonl");
 
   const startedAt = Date.now();
@@ -121,7 +122,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
 
   function appendLog(line: string): void {
     try {
-      fs.appendFileSync(logPath, line + "\n");
+      appendPrivateFile(logPath, line + "\n");
     } catch {
       /* best effort */
     }
@@ -129,16 +130,21 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
 
   function onToolResult(call: PendingCall, outputText: string, isError: boolean): void {
     report.toolCalls++;
-    recordCall({
-      sessionId: sid(),
-      toolName: call.name,
-      argsHash: fingerprint(call.name, call.input),
-      argsJson: JSON.stringify(call.input ?? {}).slice(0, 2048),
-      outputHash: hashOutput(outputText),
-      outputSample: outputSampleOf(outputText),
-      filePath: extractFile(call.input),
-      status: isError ? "failure" : "ok",
-    });
+    // With hooks live, the installed PostToolUse hook already records this call
+    // under the same Claude session id. Recording it again would double every
+    // row and halve every threshold (a 3-call repeat would fire on call 2).
+    if (!hooksLive) {
+      recordCall({
+        sessionId: sid(),
+        toolName: call.name,
+        argsHash: fingerprint(call.name, call.input),
+        argsJson: JSON.stringify(call.input ?? {}).slice(0, 2048),
+        outputHash: hashOutput(outputText),
+        outputSample: outputSampleOf(outputText),
+        filePath: extractFile(call.input),
+        status: isError ? "failure" : "ok",
+      });
+    }
 
     // Backstop analysis: if hooks aren't installed, nothing else is watching.
     // A block-level finding here can't cancel the call (it already ran), but
@@ -200,7 +206,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
           case "system":
             if (msg.subtype === "init" && msg.session_id) {
               sessionId = msg.session_id;
-              if (!sawInit) recordEvent(runId, "run_start", { prompt: opts.prompt.slice(0, 200), harness: "claude" });
+              if (!sawInit) recordEvent(runId, "run_start", { prompt: opts.prompt.slice(0, 200), harness: "claude" }, Date.now(), "claude");
               sawInit = true;
             }
             break;
@@ -243,7 +249,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
               report.tokenUsage.input_cache_read += msg.usage["cache_read_input_tokens"] ?? 0;
               report.tokenUsage.input_cache_creation += msg.usage["cache_creation_input_tokens"] ?? 0;
             }
-            if (typeof msg.total_cost_usd === "number") recordEvent(sid(), "cost", { usd: msg.total_cost_usd });
+            if (typeof msg.total_cost_usd === "number") recordEvent(sid(), "cost", { usd: msg.total_cost_usd }, Date.now(), "claude");
             if (msg.api_error_status) report.stepRetries.push({ n: 0, error_type: "api_error", status_code: msg.api_error_status });
             break;
           }
@@ -307,13 +313,13 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
             const vote = await castVetoVote({ ...collectVetoContext(sid(), cfg), claims, goal: opts.prompt }, cfg.verify.veto, { ...process.env, ...opts.env });
             if (vote.vetoed) {
               report.vetoes++;
-              recordEvent(sid(), "veto", { claims: claims.length, model: vote.model, elapsedMs: vote.elapsedMs, promptChars: vote.promptChars });
+              recordEvent(sid(), "veto", { claims: claims.length, model: vote.model, elapsedMs: vote.elapsedMs, promptChars: vote.promptChars }, Date.now(), "claude");
               break;
             }
           }
           report.verifyRounds++;
           report.endReason = "verify";
-          recordEvent(sid(), "verify_gate", { claims: claims.length });
+          recordEvent(sid(), "verify_gate", { claims: claims.length }, Date.now(), "claude");
           captureCheckpoint(sid(), "verify-gate", Date.now(), cfg);
           currentPrompt = WIRE_VERIFY_CORRECTIVE;
           continue;
@@ -327,13 +333,16 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
   }
 
   stallWatch?.stop();
+  // Hooks do the blocking when they are live; their records are the source of
+  // truth for the report and for the CLI's "intervened" exit code.
+  if (hooksLive) mergeHookBlocks(report, sid(), startedAt);
   if (report.endReason === "kill-switch") captureCheckpoint(sid(), "kill-switch", Date.now(), cfg);
 
   report.durationMs = Date.now() - startedAt;
   report.finishedAt = new Date().toISOString();
-  recordEvent(runId, "run_end", { endReason: report.endReason, blocks: report.blocks.length, harness: "claude" });
+  recordEvent(runId, "run_end", { endReason: report.endReason, blocks: report.blocks.length, harness: "claude" }, Date.now(), "claude");
   try {
-    fs.writeFileSync(report.reportPath, JSON.stringify(report, null, 2), "utf8");
+    writePrivateFile(report.reportPath, JSON.stringify(report, null, 2));
   } catch {
     /* best effort */
   }

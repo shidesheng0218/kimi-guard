@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { recordCall, recordEvent, recordBlock, countBlocks, callsSince } from "../store.js";
+import { mergeHookBlocks } from "./blocks.js";
+import { codexHooksInstalled } from "../harness/codex.js";
 import { analyzeCall } from "../analysis.js";
 import { fingerprint, outputSampleOf, hashOutput } from "../events.js";
 import { loadConfig, type GuardConfig } from "../config.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
+import { appendPrivateFile, ensurePrivateDir, writePrivateFile } from "../fsSecure.js";
 import { notify } from "../notify.js";
 import { createStallWatch } from "../stall.js";
 import type { RunReport } from "../wire/supervisor.js";
@@ -66,7 +68,7 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
   const cfg = opts.config ?? loadConfig(undefined, "codex");
   const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
   const logDir = path.join(guardHome(), "runs", runId);
-  fs.mkdirSync(logDir, { recursive: true });
+  ensurePrivateDir(logDir);
   const logPath = path.join(logDir, "stream.jsonl");
 
   const startedAt = Date.now();
@@ -97,12 +99,13 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
   let threadId = "";
   let finalText = "";
   const sid = () => threadId || runId;
+  const hooksLive = codexHooksInstalled();
   const bin = (opts.command ?? ["codex"])[0]!;
   const binArgs = (opts.command ?? ["codex"]).slice(1);
 
   const appendLog = (line: string): void => {
     try {
-      fs.appendFileSync(logPath, line + "\n");
+      appendPrivateFile(logPath, line + "\n");
     } catch {
       /* best effort */
     }
@@ -156,12 +159,14 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
       }
       if (ev.type === "thread.started" && ev.thread_id) {
         threadId = ev.thread_id;
-        recordEvent(runId, "run_start", { prompt: opts.prompt.slice(0, 200), harness: "codex" });
+        recordEvent(runId, "run_start", { prompt: opts.prompt.slice(0, 200), harness: "codex" }, Date.now(), "codex");
         return;
       }
       if (ev.type === "turn.started") {
         report.turns++;
-        recordEvent(sid(), "turn", { wire: true });
+        // With hooks live, the Stop hook records the turn for budget metering;
+        // recording it here too would double every request in the window.
+        if (!hooksLive) recordEvent(sid(), "turn", { wire: true }, Date.now(), "codex");
         return;
       }
       if (ev.type === "turn.completed" && ev.usage) {
@@ -180,24 +185,30 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
         inFlightTools = Math.max(0, inFlightTools - 1);
         report.toolCalls++;
         report.steps++;
-        recordCall({
-          sessionId: sid(),
-          toolName: mapped.tool,
-          argsHash: fingerprint(mapped.tool, mapped.args),
-          argsJson: JSON.stringify(mapped.args ?? {}).slice(0, 2048),
-          outputHash: hashOutput(ev.item.aggregated_output ?? ev.item.text ?? null),
-          outputSample: outputSampleOf(ev.item.aggregated_output ?? ev.item.text ?? null),
-          filePath: typeof (mapped.args as Record<string, unknown>)?.["path"] === "string" ? ((mapped.args as Record<string, string>)["path"] as string) : null,
-          status: ev.item.exit_code !== undefined && ev.item.exit_code !== 0 ? "failure" : ev.item.status === "failed" ? "failure" : "ok",
-        });
-        // kill-switch backstop (same as claude driver)
-        const since = Date.now() - 30 * 60_000;
-        const analysis = analyzeCall(callsSince(sid(), since), { tool: mapped.tool, argsHash: fingerprint(mapped.tool, mapped.args), args: mapped.args }, cfg);
-        const block = analysis.findings.find((f) => f.severity === "block");
-        if (block) {
-          recordBlock(sid(), mapped.tool, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
-          report.blocks.push({ tool: mapped.tool, kind: block.kind, message: block.message, ts: Date.now() });
-          if ((cfg.notify.enabled || cfg.notify.webhookUrl) && cfg.notify.onBlock) notify(cfg, "🛡️ agent-guard", `blocked ${block.kind} on ${mapped.tool}`, { event: "block", kind: block.kind, tool: mapped.tool, session: sid() });
+        // Hooks already record every shell/apply_patch call under the codex
+        // session id; recording again would double every row and halve the
+        // effective thresholds. The in-process backstop is likewise hooks-off
+        // only, because the hook is what actually blocks the call.
+        if (!hooksLive) {
+          recordCall({
+            sessionId: sid(),
+            toolName: mapped.tool,
+            argsHash: fingerprint(mapped.tool, mapped.args),
+            argsJson: JSON.stringify(mapped.args ?? {}).slice(0, 2048),
+            outputHash: hashOutput(ev.item.aggregated_output ?? ev.item.text ?? null),
+            outputSample: outputSampleOf(ev.item.aggregated_output ?? ev.item.text ?? null),
+            filePath: typeof (mapped.args as Record<string, unknown>)?.["path"] === "string" ? ((mapped.args as Record<string, string>)["path"] as string) : null,
+            status: ev.item.exit_code !== undefined && ev.item.exit_code !== 0 ? "failure" : ev.item.status === "failed" ? "failure" : "ok",
+          });
+          // kill-switch backstop (same as claude driver)
+          const since = Date.now() - 30 * 60_000;
+          const analysis = analyzeCall(callsSince(sid(), since), { tool: mapped.tool, argsHash: fingerprint(mapped.tool, mapped.args), args: mapped.args }, cfg);
+          const block = analysis.findings.find((f) => f.severity === "block");
+          if (block) {
+            recordBlock(sid(), mapped.tool, block.kind, Date.now(), `[agent-guard] Blocked (${block.kind}): ${block.message}`);
+            report.blocks.push({ tool: mapped.tool, kind: block.kind, message: block.message, ts: Date.now() });
+            if ((cfg.notify.enabled || cfg.notify.webhookUrl) && cfg.notify.onBlock) notify(cfg, "🛡️ agent-guard", `blocked ${block.kind} on ${mapped.tool}`, { event: "block", kind: block.kind, tool: mapped.tool, session: sid() });
+          }
         }
         const blocksInSession = countBlocks(sid(), startedAt - cfg.policy.blockWindowMinutes * 60_000);
         if (cfg.policy.killSwitch && blocksInSession >= cfg.policy.maxBlocksPerSession) {
@@ -226,13 +237,16 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
   });
   stallWatch?.stop();
 
+  // With hooks live they recorded the blocks; merge them into the report so the
+  // CI summary and the exit code can see the interventions.
+  if (hooksLive) mergeHookBlocks(report, sid(), startedAt);
   if (report.endReason === "kill-switch") captureCheckpoint(sid(), "kill-switch", Date.now(), cfg);
-  if (finalText) recordEvent(sid(), "final_text", { chars: finalText.length });
-  recordEvent(runId, "run_end", { endReason: report.endReason, blocks: report.blocks.length, harness: "codex" });
+  if (finalText) recordEvent(sid(), "final_text", { chars: finalText.length }, Date.now(), "codex");
+  recordEvent(runId, "run_end", { endReason: report.endReason, blocks: report.blocks.length, harness: "codex" }, Date.now(), "codex");
   report.durationMs = Date.now() - startedAt;
   report.finishedAt = new Date().toISOString();
   try {
-    fs.writeFileSync(report.reportPath, JSON.stringify(report, null, 2), "utf8");
+    writePrivateFile(report.reportPath, JSON.stringify(report, null, 2));
   } catch {
     /* best effort */
   }

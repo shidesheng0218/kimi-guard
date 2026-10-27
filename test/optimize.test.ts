@@ -58,15 +58,15 @@ describe("auto-prune (throttled, blocks preserved)", () => {
 });
 
 describe("watch render: block reasons + session detail", () => {
-  const base = {
-    budget: budgetSnapshot("s", structuredClone(defaultConfig.budget)),
+  const base = () => ({
+    budget: budgetSnapshot(structuredClone(defaultConfig.budget), "kimi"),
     now: Date.now(),
-  };
+  });
 
   it("shows the persisted reason under each intervention", () => {
     const text = renderDashboard(
       {
-        ...base,
+        ...base(),
         sessions: [],
         blocks: [{ id: 1, session_id: "s", tool_name: "Grep", kind: "repeat", ts: Date.now(), feedback: null, reason: "already been called 3 times with identical arguments" }],
       },
@@ -78,10 +78,10 @@ describe("watch render: block reasons + session detail", () => {
 
   it("marks the selected session and renders detail view", () => {
     const sessions = [{ session_id: "sess-a", last_ts: Date.now(), n: 3 }];
-    const overview = renderDashboard({ ...base, sessions, blocks: [], selected: 0 }, 100, 30).join("\n");
+    const overview = renderDashboard({ ...base(), sessions, blocks: [], selected: 0 }, 100, 30).join("\n");
     expect(overview).toContain("▸");
     const detail = renderDashboard(
-      { ...base, sessions, blocks: [], detail: { sessionId: "sess-a", calls: [{ tool_name: "Grep", ts: Date.now(), status: "ok" }] } },
+      { ...base(), sessions, blocks: [], detail: { sessionId: "sess-a", calls: [{ tool_name: "Grep", ts: Date.now(), status: "ok" }] } },
       100,
       30,
     ).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
