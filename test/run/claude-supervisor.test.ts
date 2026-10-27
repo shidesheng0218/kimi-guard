@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runClaudeSupervised } from "../../src/run/claude.js";
-import { resetDbForTests, callsSince, countEvents } from "../../src/store.js";
+import { mergeHookBlocks } from "../../src/run/blocks.js";
+import { resetDbForTests, callsSince, countEvents, recordBlock } from "../../src/store.js";
 import { defaultConfig } from "../../src/config.js";
 
 const FAKE = path.join(import.meta.dirname, "fake-claude.mjs");
@@ -54,6 +55,24 @@ describe("claude headless supervision (stream-json driver)", () => {
     const rows = callsSince("fake-claude-sess-1", Date.now() - 60_000);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.tool_name).toBe("Read");
+  }, 20000);
+
+  it("hooks live: the driver does not duplicate call rows; hook blocks merge into the report", async () => {
+    const settings = path.join(tmp, "settings.json");
+    process.env.CLAUDE_SETTINGS_PATH = settings;
+    fs.writeFileSync(
+      settings,
+      JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "agentguard hook PreToolUse" }] }] } }),
+    );
+    const r = await run("read the readme", "ok");
+    expect(r.endReason).toBe("finished");
+    expect(r.toolCalls).toBe(1);
+    // With hooks live the PostToolUse hook owns the calls table; the driver must
+    // not write the same call a second time under the same session id.
+    expect(callsSince("fake-claude-sess-1", 0)).toHaveLength(0);
+    recordBlock("fake-claude-sess-1", "Grep", "repeat", Date.now(), "blocked by hook");
+    mergeHookBlocks(r, "fake-claude-sess-1", Date.parse(r.startedAt));
+    expect(r.blocks.some((b) => b.kind === "repeat" && b.tool === "Grep")).toBe(true);
   }, 20000);
 
   it("loop scenario: driver backstop records blocks and the kill switch stops the run", async () => {

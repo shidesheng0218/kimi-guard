@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { WireClient } from "./client.js";
@@ -14,6 +13,7 @@ import { notify } from "../notify.js";
 import { createStallWatch } from "../stall.js";
 import { captureCheckpoint } from "../checkpoint.js";
 import { guardHome } from "../paths.js";
+import { appendPrivateFile, ensurePrivateDir, writePrivateFile } from "../fsSecure.js";
 import { findClaims, hasEvidence, WIRE_VERIFY_CORRECTIVE } from "../verify.js";
 import { castVetoVote, collectVetoContext } from "../veto.js";
 
@@ -86,11 +86,11 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
   const cfg = opts.config ?? loadConfig();
   const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
   const logDir = path.join(guardHome(), "runs", runId);
-  fs.mkdirSync(logDir, { recursive: true });
+  ensurePrivateDir(logDir);
   const logPath = path.join(logDir, "wire.jsonl");
   const rawLog = (direction: "in" | "out", line: string): void => {
     try {
-      fs.appendFileSync(logPath, JSON.stringify({ dir: direction, ts: Date.now(), line }) + "\n");
+      appendPrivateFile(logPath, JSON.stringify({ dir: direction, ts: Date.now(), line }) + "\n");
     } catch {
       /* best effort */
     }
@@ -398,7 +398,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
 
     if (cfg.budget.dispatchTools.includes(toolName)) {
       await refreshPreciseIfStale(cfg.budget, { ...process.env, ...opts.env });
-      const budgetFinding = evaluateBudgetGate(sessionId(), cfg.budget, Date.now());
+      const budgetFinding = evaluateBudgetGate(cfg.budget, "kimi", Date.now());
       if (budgetFinding) analysis.findings.unshift(budgetFinding);
     }
 
@@ -527,7 +527,7 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
   recordEvent(sessionId(), "run_end", { endReason: report.endReason, blocks: report.blocks.length });
 
   try {
-    fs.writeFileSync(report.reportPath, JSON.stringify(report, null, 2), "utf8");
+    writePrivateFile(report.reportPath, JSON.stringify(report, null, 2));
   } catch {
     /* best effort */
   }

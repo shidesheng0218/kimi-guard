@@ -10,9 +10,9 @@ import { geminiHooksInstalled } from "./harness/gemini.js";
 import { buildStatus, openDb, knownSessions, getMeta, blockKindStats, blocksSince, countCallsWindow, crossSessionRepeats, type BlockKindStat } from "./store.js";
 import { estSavedFromBlocks, STREAK_WINDOW_MS } from "./estSaved.js";
 import { budgetSnapshot, formatSnapshot } from "./meter.js";
-import { latestSessionId } from "./checkpoint.js";
 import { vetoKeyConfigured } from "./veto.js";
 import { preciseKeyConfigured } from "./precise.js";
+import { ensurePrivateDir } from "./fsSecure.js";
 
 function ok(msg: string): void {
   console.log(`${pc.green("✓")} ${msg}`);
@@ -73,8 +73,7 @@ export function buildGuardReport(cfg = loadConfig(), opts?: { sessions?: boolean
     confirmed: k.tp,
     fpRate: k.n > 0 ? Math.round((k.fp / k.n) * 100) / 100 : 0,
   }));
-  const sid = latestSessionId() ?? "unknown";
-  const snap = budgetSnapshot(sid, cfg.budget);
+  const snap = budgetSnapshot(cfg.budget, cfg.harness);
   const report: Record<string, unknown> = {
     tool: "agent-guard",
     generatedAt: new Date().toISOString(),
@@ -137,6 +136,12 @@ export function cmdStatus(): void {
   console.log(`${pc.bold(pc.magentaBright("◆ agent-guard status"))} ${pc.dim(`(state: ${stateDbPath()})`)}`);
   console.log(`  ${pc.dim("profile:")}             ${pc.bold(cfg.profile)}`);
   if (cfg.projectConfigPath) console.log(`  ${pc.dim("project config:")}     ${cfg.projectConfigPath}`);
+  if (cfg.projectConfigIgnored && cfg.projectConfigIgnored.length > 0) {
+    console.log(
+      `  ${pc.yellow("!")} project config ignored sensitive key(s): ${cfg.projectConfigIgnored.join(", ")}` +
+        ` ${pc.dim("(network/credential settings are user-config only)")}`,
+    );
+  }
   console.log(`  ${pc.dim("last activity:")}       ${dt}`);
   console.log(`  ${pc.dim("last hook activity:")}  ${lastHook}`);
   if (normalizeMisses > 0) {
@@ -180,9 +185,8 @@ export function cmdStatus(): void {
   }
   console.log("");
   console.log(`budget (${cfg.budget.plan}):`);
-  const sid = latestSessionId() ?? "unknown";
   console.log(
-    formatSnapshot(budgetSnapshot(sid, cfg.budget))
+    formatSnapshot(budgetSnapshot(cfg.budget, cfg.harness))
       .split("\n")
       .map((l) => "  " + l)
       .join("\n"),
@@ -207,7 +211,7 @@ export function cmdDoctor(): number {
   );
 
   try {
-    fs.mkdirSync(guardHome(), { recursive: true });
+    ensurePrivateDir(guardHome());
     fs.accessSync(guardHome(), fs.constants.W_OK);
     check(true, `state dir writable: ${guardHome()}`, "");
     openDb().prepare("SELECT 1").get();

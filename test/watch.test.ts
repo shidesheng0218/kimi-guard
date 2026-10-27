@@ -24,7 +24,7 @@ function state(overrides?: Partial<WatchState>): WatchState {
   return {
     sessions: [],
     blocks: [],
-    budget: budgetSnapshot("s", { ...defaultConfig.budget }),
+    budget: budgetSnapshot({ ...defaultConfig.budget }, "kimi"),
     now: Date.parse("2026-09-03T12:00:00Z"),
     ...overrides,
   };

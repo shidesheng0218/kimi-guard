@@ -1,4 +1,4 @@
-import { countEvents, countBlocks, oldestEventTs, type StatusReport } from "./store.js";
+import { countEvents, countEventsForHarness, countBlocks, oldestEventTs, oldestEventTsForHarness, type StatusReport } from "./store.js";
 import { cachedPreciseUsage } from "./precise.js";
 import type { Finding } from "./analysis.js";
 
@@ -39,6 +39,10 @@ export interface WindowUsage {
 export interface BudgetSnapshot {
   enabled: boolean;
   plan: string;
+  /** harness whose events were counted (Kimi plan windows are per account/harness) */
+  harness: string;
+  /** "harness" = all sessions of this harness; "session" = explicit debug scope */
+  scope: "harness" | "session";
   fiveHour: WindowUsage;
   weekly: WindowUsage;
   /** LLM turn events in the last hour — the burn rate */
@@ -75,12 +79,28 @@ export function resolveLimits(cfg: BudgetConfig): PlanPreset {
  * which is the safe direction for a guard. With `[budget] precise = true` and
  * KIMI_API_KEY set, the official usage API overrides the window estimates
  * (cached; any failure falls back to the estimates).
+ *
+ * Windows are ACCOUNT-wide: every session of the same harness in this state db
+ * counts. A reset per new session was the old bug — plan quotas do not reset
+ * when you start another agent session. `scopeSessionId` is a debug override
+ * for `agentguard budget --session <id>`; the gate always uses harness scope.
  */
-export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.now()): BudgetSnapshot {
-  const turns = countEvents(sessionId, ["turn"], now - HOUR);
-  const subagents = countEvents(sessionId, ["subagent"], now - HOUR);
-  const used5h = countEvents(sessionId, ["turn"], now - FIVE_HOURS) + countEvents(sessionId, ["subagent"], now - FIVE_HOURS) * cfg.subagentWeight;
-  const usedWeek = countEvents(sessionId, ["turn"], now - WEEK) + countEvents(sessionId, ["subagent"], now - WEEK) * cfg.subagentWeight;
+export function budgetSnapshot(
+  cfg: BudgetConfig,
+  harness: string,
+  now = Date.now(),
+  scopeSessionId?: string,
+): BudgetSnapshot {
+  const scoped = scopeSessionId !== undefined;
+  const count = (kinds: string[], since: number): number =>
+    scoped ? countEvents(scopeSessionId!, kinds, since) : countEventsForHarness(harness, kinds, since);
+  const oldest = (kinds: string[], since: number): number | null =>
+    scoped ? oldestEventTs(scopeSessionId!, kinds, since) : oldestEventTsForHarness(harness, kinds, since);
+
+  const turns = count(["turn"], now - HOUR);
+  const subagents = count(["subagent"], now - HOUR);
+  const used5h = count(["turn"], now - FIVE_HOURS) + count(["subagent"], now - FIVE_HOURS) * cfg.subagentWeight;
+  const usedWeek = count(["turn"], now - WEEK) + count(["subagent"], now - WEEK) * cfg.subagentWeight;
   const limits = resolveLimits(cfg);
 
   // Rolling-window semantics: the window ends `span` after the OLDEST event
@@ -94,8 +114,8 @@ export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.
     resetsInMs: oldestTs !== null ? Math.max(0, oldestTs + span - now) : span,
   });
 
-  const five = mk("5h", used5h, limits.fiveHour, FIVE_HOURS, oldestEventTs(sessionId, ["turn", "subagent"], now - FIVE_HOURS));
-  const week = mk("weekly", usedWeek, limits.weekly, WEEK, oldestEventTs(sessionId, ["turn", "subagent"], now - WEEK));
+  const five = mk("5h", used5h, limits.fiveHour, FIVE_HOURS, oldest(["turn", "subagent"], now - FIVE_HOURS));
+  const week = mk("weekly", usedWeek, limits.weekly, WEEK, oldest(["turn", "subagent"], now - WEEK));
 
   // Precise mode: a fresh official-API reading overrides the event estimates.
   // The burn rate stays event-based (the API has no per-hour breakdown).
@@ -119,6 +139,8 @@ export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.
   return {
     enabled: cfg.enabled,
     plan: cfg.plan,
+    harness,
+    scope: scoped ? "session" : "harness",
     fiveHour: five,
     weekly: week,
     turnsLastHour: turns,
@@ -133,12 +155,12 @@ export function budgetSnapshot(sessionId: string, cfg: BudgetConfig, now = Date.
  * current burn rate projects past the 5h limit before it resets.
  */
 export function evaluateBudgetGate(
-  sessionId: string,
   cfg: BudgetConfig,
+  harness: string,
   now = Date.now(),
 ): Finding | null {
   if (!cfg.enabled) return null;
-  const snap = budgetSnapshot(sessionId, cfg, now);
+  const snap = budgetSnapshot(cfg, harness, now);
   const reserve = Math.max(0, Math.min(50, cfg.reservePercent));
 
   for (const w of [snap.fiveHour, snap.weekly]) {
@@ -193,6 +215,7 @@ export function formatSnapshot(snap: BudgetSnapshot): string {
   };
   return [
     `plan: ${snap.plan}${snap.precise ? " (precise, official API)" : ""}`,
+    `scope: ${snap.scope === "session" ? "one session (debug)" : `all ${snap.harness} sessions`}`,
     `5h:     ${bar(snap.fiveHour)}  resets in ${Math.round(snap.fiveHour.resetsInMs / HOUR)}h`,
     `weekly: ${bar(snap.weekly)}  resets in ${Math.round(snap.weekly.resetsInMs / (24 * HOUR))}d`,
     `burn rate: ${snap.turnsLastHour} req + ${snap.subagentsLastHour} subagents in the last hour`,

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- 🔒 **Project config trust boundary** — a repo-level `.agentguard.toml` may tune thresholds, but it can no longer redirect credential-bearing network calls: `[notify]`, `[verify.veto]`, `budget.precise` and `budget.preciseUrl` are ignored from project files (user-config only). `agentguard status` lists ignored keys. Closes a cloned-repository route to exfiltrating `KIMI_API_KEY`.
+- 🐛 **Recovery calls are no longer blocked** — noGain / churn / cycle / nearRepeat now only block the call that continues the pattern; a different tool, a read, or a different file is allowed, so the agent can act on the correction instead of being locked out. Near-duplicate matching is also key-order tolerant.
+- 🐛 **Hooks-live supervised runs** — the Claude/Codex drivers no longer double-record calls when hooks are installed, and blocks recorded by the hooks are merged into the run report. `agentguard run` now exits 2 whenever an intervention occurred, matching the documented CI semantics.
+- 🐛 **Profile precedence** — the profile is resolved once: `--profile` / `AGENT_GUARD_PROFILE` beat both config files, and explicit user keys beat a project-level profile.
+- 🔐 **Owner-only artifacts + retention** — the state db/WAL, probe log, run logs, checkpoints, incidents and user config are created `0700`/`0600` (existing files can be tightened with `agentguard clean`). New `[retention]` config (runs 30d, checkpoints 30d, incidents 90d; `0` disables) prunes them automatically and via `agentguard clean [--dry-run]`.
+- 🎯 **Account-wide quota windows** — event-based budget accounting now counts every local session of the same harness instead of resetting with each new session (schema v6 adds `events.harness`; legacy rows count as `kimi`). `agentguard budget --session <id>` remains as a debug scope. Precise API windows are unchanged.
+- 📦 **Packaging** — `kguard` / `kimi-guard` bin aliases restored (the README already documented them), the bench fixture now ships in the npm tarball (`agentguard bench` works after install), `prepack` builds before publish, and the plugin manifests track the CLI version.
+
 ## 1.9.0 — 2026-09-28
 
 - ⏸️ **Stall watchdog** — the failure mode every tool-call detector is blind to. A stalled agent (hung API call, dead stream, silent wedge) produces *no* events, so loop detectors never see it. Two shapes: supervised runs (`agentguard run --harness kimi|claude|codex`) alert in real time when no event arrives for `[stall] minutes` (default 10) **while no tool is in flight** — a 30-minute build keeps the in-flight counter non-zero and never alerts. On the plain hooks path there is no long-running process to watch with, so the guard reports the stall the moment the session resumes (silence after `Stop`/`Interrupt` is the user thinking; silence after `PreToolUse` is a tool running — neither ever alerts). Delivers through the v1.8.0 channels: webhook and/or desktop.

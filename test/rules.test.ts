@@ -154,8 +154,12 @@ describe("cycle analyzer (oscillation)", () => {
     const a = mk("Grep", { pattern: "a" });
     const b = mk("Glob", { pattern: "*.ts" });
     const history = [a, b, a, b, a, b, a, b];
-    const r = analyzeCall(history, { tool: "Glob", argsHash: b.args_hash, args: {} }, c);
+    // The next element of the cycle is a Grep — that continuation is blocked.
+    const r = analyzeCall(history, { tool: "Grep", argsHash: a.args_hash, args: { pattern: "a" } }, c);
     expect(r.findings.some((f) => f.kind === "cycle" && f.severity === "block")).toBe(true);
+    // Repeating the last call breaks the alternation — it is an escape, not a continuation.
+    const escape = analyzeCall(history, { tool: "Glob", argsHash: b.args_hash, args: { pattern: "*.ts" } }, c);
+    expect(escape.findings.find((f) => f.kind === "cycle")).toBeUndefined();
   });
 
   it("does not fire on varied activity", () => {
@@ -403,5 +407,85 @@ describe("store roundtrip", () => {
     expect(oldestEventTs("o1", ["turn"], now - 5 * 3_600_000)).toBe(now - 3_600_000);
     expect(oldestEventTs("o1", ["turn"], now - 30_000)).toBeNull();
     expect(oldestEventTs("ghost", ["turn"], 0)).toBeNull();
+  });
+});
+
+describe("escape semantics: history-only detectors must allow the recovery call", () => {
+  it("noGain blocks the stagnant tool, not an edit that breaks the loop", () => {
+    const c = cfg();
+    const history = [0, 1, 2, 3].map((i) => mk("Bash", { command: `cmd-${i}` }, { output: "same output" }));
+    const same = analyzeCall(
+      history,
+      { tool: "Bash", argsHash: fingerprint("Bash", { command: "cmd-9" }), args: { command: "cmd-9" } },
+      c,
+    );
+    expect(same.findings.find((f) => f.kind === "noGain")?.severity).toBe("block");
+    const escape = analyzeCall(history, { tool: "Edit", argsHash: "edit", args: { file_path: "a.ts" } }, c);
+    expect(escape.findings.find((f) => f.kind === "noGain")).toBeUndefined();
+  });
+
+  it("churn blocks another edit to the same file, not a read or another file", () => {
+    const c = cfg();
+    const history = Array.from({ length: 10 }, (_, i) =>
+      mk("WriteFile", { file_path: "src/a.ts", content: `v${i}` }, { file: "src/a.ts" }),
+    );
+    const same = analyzeCall(
+      history,
+      { tool: "WriteFile", argsHash: "same", args: { file_path: "src/a.ts", content: "v10" } },
+      c,
+    );
+    expect(same.findings.find((f) => f.kind === "churn")?.severity).toBe("block");
+    const read = analyzeCall(history, { tool: "ReadFile", argsHash: "read", args: { file_path: "src/a.ts" } }, c);
+    expect(read.findings.find((f) => f.kind === "churn")).toBeUndefined();
+    const other = analyzeCall(
+      history,
+      { tool: "WriteFile", argsHash: "other", args: { file_path: "src/b.ts", content: "x" } },
+      c,
+    );
+    expect(other.findings.find((f) => f.kind === "churn")).toBeUndefined();
+  });
+
+  it("cycle blocks the continuation, not a different call", () => {
+    const c = cfg();
+    const args = { url: "same" };
+    const history = Array.from({ length: 8 }, (_, i) => mk("FetchURL", args, { output: `out-${i}` }));
+    const cont = analyzeCall(history, { tool: "FetchURL", argsHash: fingerprint("FetchURL", args), args }, c);
+    expect(cont.findings.find((f) => f.kind === "cycle")?.severity).toBe("block");
+    const escape = analyzeCall(history, { tool: "Edit", argsHash: "edit", args: { file_path: "a.ts" } }, c);
+    expect(escape.findings.find((f) => f.kind === "cycle")).toBeUndefined();
+  });
+
+  it("nearRepeat blocks the next near-duplicate, not an edit", () => {
+    const c = cfg();
+    // Same alphanumerics, different punctuation/case/whitespace → identical fuzzyKey.
+    const variants = [
+      "foo.bar",
+      "FOO BAR",
+      "foo-bar",
+      " foo.bar ",
+      "foo..bar",
+      "F.O.O.B.A.R",
+      "foo\tbar",
+      "Foo/Bar",
+      "foo_bar",
+      "f o o b a r",
+    ];
+    const history = variants.map((pattern) => mk("Grep", { pattern, path: "src" }));
+    const near = analyzeCall(
+      history,
+      { tool: "Grep", argsHash: "near", args: { pattern: "FOO.BAR", path: "src" } },
+      c,
+    );
+    expect(near.findings.find((f) => f.kind === "nearRepeat")?.severity).toBe("block");
+    // key order is not a meaningful difference — the same call in a different
+    // key order must still be recognized as a near-duplicate
+    const reordered = analyzeCall(
+      history,
+      { tool: "Grep", argsHash: "reordered", args: { path: "src", pattern: "FOO.BAR" } },
+      c,
+    );
+    expect(reordered.findings.find((f) => f.kind === "nearRepeat")?.severity).toBe("block");
+    const escape = analyzeCall(history, { tool: "Edit", argsHash: "edit", args: { file_path: "a.ts" } }, c);
+    expect(escape.findings.find((f) => f.kind === "nearRepeat")).toBeUndefined();
   });
 });

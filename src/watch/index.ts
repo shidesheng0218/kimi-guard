@@ -1,7 +1,6 @@
 import readline from "node:readline";
 import { knownSessions, listBlocks, callsSince, openDb } from "../store.js";
 import { budgetSnapshot } from "../meter.js";
-import { latestSessionId } from "../checkpoint.js";
 import { loadConfig } from "../config.js";
 import { renderDashboard, type WatchState } from "./render.js";
 
@@ -13,12 +12,11 @@ const HOME = "\x1b[H";
 
 function gather(now: number, selected: number, detailMode: boolean): WatchState {
   const cfg = loadConfig();
-  const sid = latestSessionId() ?? "unknown";
   const sessions = knownSessions(8);
   const state: WatchState = {
     sessions,
     blocks: listBlocks(50),
-    budget: budgetSnapshot(sid, cfg.budget, now),
+    budget: budgetSnapshot(cfg.budget, cfg.harness, now),
     now,
     selected: detailMode ? undefined : selected,
   };

@@ -4,6 +4,8 @@ import { parse as parseToml } from "smol-toml";
 import { userConfigPath } from "./paths.js";
 import { toolDefaultsFor, type HarnessName } from "./toolsets.js";
 import { applyProfile, PROFILE_NAMES, type ProfileName } from "./profiles.js";
+import { DEFAULT_RETENTION, type RetentionConfig } from "./retention.js";
+import { ensurePrivateDir, writePrivateFile } from "./fsSecure.js";
 
 export interface GuardConfig {
   /** which agent harness this config instance serves (affects tool-name defaults and event mapping) */
@@ -12,6 +14,12 @@ export interface GuardConfig {
   profile: string;
   /** repo-level config that overrode user config, if any was found walking up from cwd */
   projectConfigPath?: string;
+  /**
+   * Sensitive keys found in a repo-level `.agentguard.toml` that were ignored.
+   * Project files are attacker-controlled input (cloned repos), so they may tune
+   * thresholds but can never redirect credentials or enable network channels.
+   */
+  projectConfigIgnored?: string[];
   /** canonical tool-name taxonomy — every tool-name classifier reads through here */
   tools: {
     edit: string[];
@@ -134,6 +142,8 @@ export interface GuardConfig {
     enabled: boolean;
     minutes: number;
   };
+  /** retention for on-disk artifacts; 0 disables pruning for that category */
+  retention: RetentionConfig;
   probe: boolean;
 }
 
@@ -197,6 +207,7 @@ export const defaultConfig: GuardConfig = {
     preciseCacheSeconds: 300,
   },
   stall: { enabled: true, minutes: 10 },
+  retention: { ...DEFAULT_RETENTION },
   probe: false,
 };
 
@@ -283,6 +294,12 @@ webhookUrl = ""           # optional: POST blocks/kill-switch/digest to Slack/Di
 enabled = true            # so every other detector is blind to it. Alert-only (notify channels).
 minutes = 10              # alert when a live session is silent this long mid-turn.
                           # A running tool (long build) never counts as a stall.
+
+[retention]               # on-disk artifacts (state DB traffic is pruned separately)
+runsDays = 30             # raw run logs (wire.jsonl/stream.jsonl — full model output)
+checkpointsDays = 30      # auto-captured checkpoints
+incidentsDays = 90        # incident reports are small; keep them longer
+                          # 0 disables pruning for that category; "agentguard clean" runs it on demand
 
 [noGain]                  # different args, byte-identical output
 enabled = true
@@ -402,29 +419,37 @@ export function loadConfig(configPath = userConfigPath(), harness: HarnessName =
 
   // Layer order: defaults < harness < profile < user config < project config (.agentguard.toml)
   const data = readTomlData(configPath);
-  if (data) applyConfigData(cfg, data, profileOverride);
   const proj = findProjectConfig();
-  if (proj && proj !== configPath) {
-    const pdata = readTomlData(proj);
-    if (pdata) {
-      cfg.projectConfigPath = proj;
-      applyConfigData(cfg, pdata);
-    }
-  }
-  return cfg;
-}
+  const pdata = proj && proj !== configPath ? readTomlData(proj) : null;
 
-function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profileOverride?: string): void {
-  // Threshold profile overlay: sits between harness defaults and the user's
-  // explicit keys (explicit keys always win). Priority: flag > env > file.
-  const profileName =
-    profileOverride ??
-    process.env.AGENT_GUARD_PROFILE ??
-    (typeof data["profile"] === "string" ? data["profile"] : "balanced");
+  // Resolve the profile ONCE, before any key is applied. This keeps explicit
+  // user keys (applied later) above the profile, and makes a CLI flag/env win
+  // over both files. Priority: flag > env > project file > user file.
+  const fileProfile =
+    (pdata && typeof pdata["profile"] === "string" ? pdata["profile"] : undefined) ??
+    (data && typeof data["profile"] === "string" ? data["profile"] : undefined);
+  const profileName = profileOverride ?? process.env.AGENT_GUARD_PROFILE ?? fileProfile ?? "balanced";
   if (profileName !== "balanced" && !PROFILE_NAMES.includes(profileName as ProfileName)) {
     process.stderr.write(`[agent-guard] unknown profile "${profileName}" — using balanced\n`);
   }
   applyProfile(cfg, profileName);
+
+  if (data) applyConfigData(cfg, data, "user");
+  if (pdata) {
+    cfg.projectConfigPath = proj!;
+    applyConfigData(cfg, pdata, "project");
+  }
+  return cfg;
+}
+
+/**
+ * `source = "project"` means the data came from a repo-level `.agentguard.toml`.
+ * That file is untrusted input: it may tune detector thresholds, but network
+ * endpoints and credential-bearing switches are ignored (see projectConfigIgnored).
+ */
+function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, source: "user" | "project" = "user"): void {
+  const fromProject = source === "project";
+  const ignored: string[] = [];
 
   const section = (name: string): Record<string, unknown> =>
     (data[name] as Record<string, unknown> | undefined) ?? {};
@@ -487,11 +512,16 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   if (legacyShellTools && !toolsShell) cfg.tools.shell = legacyShellTools;
   const veto = verify["veto"] as Record<string, unknown> | undefined;
   if (veto) {
-    cfg.verify.veto.enabled = bool(veto["enabled"], cfg.verify.veto.enabled);
-    cfg.verify.veto.model = typeof veto["model"] === "string" ? veto["model"] : cfg.verify.veto.model;
-    cfg.verify.veto.baseUrl = typeof veto["baseUrl"] === "string" ? veto["baseUrl"] : cfg.verify.veto.baseUrl;
-    cfg.verify.veto.maxCallsPerSession = num(veto["maxCallsPerSession"], cfg.verify.veto.maxCallsPerSession);
-    cfg.verify.veto.timeoutMs = num(veto["timeoutMs"], cfg.verify.veto.timeoutMs);
+    if (fromProject) {
+      // The vote sends commands/file paths plus KIMI_GUARD_VETO_API_KEY to baseUrl.
+      ignored.push("verify.veto");
+    } else {
+      cfg.verify.veto.enabled = bool(veto["enabled"], cfg.verify.veto.enabled);
+      cfg.verify.veto.model = typeof veto["model"] === "string" ? veto["model"] : cfg.verify.veto.model;
+      cfg.verify.veto.baseUrl = typeof veto["baseUrl"] === "string" ? veto["baseUrl"] : cfg.verify.veto.baseUrl;
+      cfg.verify.veto.maxCallsPerSession = num(veto["maxCallsPerSession"], cfg.verify.veto.maxCallsPerSession);
+      cfg.verify.veto.timeoutMs = num(veto["timeoutMs"], cfg.verify.veto.timeoutMs);
+    }
   }
 
   const thinking = section("thinking");
@@ -509,14 +539,25 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   cfg.context.warnPercent = num(context["warnPercent"], cfg.context.warnPercent);
 
   const notify = section("notify");
-  cfg.notify.enabled = bool(notify["enabled"], cfg.notify.enabled);
-  cfg.notify.onBlock = bool(notify["onBlock"], cfg.notify.onBlock);
-  cfg.notify.onKillSwitch = bool(notify["onKillSwitch"], cfg.notify.onKillSwitch);
-  cfg.notify.webhookUrl = typeof notify["webhookUrl"] === "string" ? notify["webhookUrl"] : cfg.notify.webhookUrl;
+  if (fromProject && Object.keys(notify).length > 0) {
+    // webhookUrl posts block/session data to an arbitrary endpoint; desktop
+    // notifications can be turned into spam. Notification policy is user-only.
+    ignored.push("notify");
+  } else {
+    cfg.notify.enabled = bool(notify["enabled"], cfg.notify.enabled);
+    cfg.notify.onBlock = bool(notify["onBlock"], cfg.notify.onBlock);
+    cfg.notify.onKillSwitch = bool(notify["onKillSwitch"], cfg.notify.onKillSwitch);
+    cfg.notify.webhookUrl = typeof notify["webhookUrl"] === "string" ? notify["webhookUrl"] : cfg.notify.webhookUrl;
+  }
 
   const stall = section("stall");
   cfg.stall.enabled = bool(stall["enabled"], cfg.stall.enabled);
   cfg.stall.minutes = num(stall["minutes"], cfg.stall.minutes);
+
+  const retention = section("retention");
+  cfg.retention.runsDays = Math.max(0, Math.floor(num(retention["runsDays"], cfg.retention.runsDays)));
+  cfg.retention.checkpointsDays = Math.max(0, Math.floor(num(retention["checkpointsDays"], cfg.retention.checkpointsDays)));
+  cfg.retention.incidentsDays = Math.max(0, Math.floor(num(retention["incidentsDays"], cfg.retention.incidentsDays)));
 
   const noGain = section("noGain");
   cfg.noGain.enabled = bool(noGain["enabled"], cfg.noGain.enabled);
@@ -553,21 +594,30 @@ function applyConfigData(cfg: GuardConfig, data: Record<string, unknown>, profil
   cfg.budget.reservePercent = num(budget["reservePercent"], cfg.budget.reservePercent);
   cfg.budget.subagentWeight = num(budget["subagentWeight"], cfg.budget.subagentWeight);
   cfg.budget.warnPercent = num(budget["warnPercent"], cfg.budget.warnPercent);
-  cfg.budget.precise = bool(budget["precise"], cfg.budget.precise);
-  cfg.budget.preciseUrl = typeof budget["preciseUrl"] === "string" ? budget["preciseUrl"] : cfg.budget.preciseUrl;
   cfg.budget.preciseCacheSeconds = num(budget["preciseCacheSeconds"], cfg.budget.preciseCacheSeconds);
+  if (fromProject && ("precise" in budget || "preciseUrl" in budget)) {
+    // precise mode sends KIMI_API_KEY as a Bearer token to preciseUrl. A repo
+    // file must not be able to point that at a host it controls.
+    if ("precise" in budget) ignored.push("budget.precise");
+    if ("preciseUrl" in budget) ignored.push("budget.preciseUrl");
+  } else {
+    cfg.budget.precise = bool(budget["precise"], cfg.budget.precise);
+    cfg.budget.preciseUrl = typeof budget["preciseUrl"] === "string" ? budget["preciseUrl"] : cfg.budget.preciseUrl;
+  }
 
   cfg.probe = bool(section("probe")["enabled"], cfg.probe);
 
   // keep the deprecated mirror fields consistent with the resolved taxonomy
   cfg.verify.shellTools = cfg.tools.shell;
   cfg.churn.tools = cfg.tools.edit;
+
+  if (ignored.length > 0) cfg.projectConfigIgnored = [...(cfg.projectConfigIgnored ?? []), ...ignored];
 }
 
 export function writeConfigTemplate(configPath = userConfigPath()): boolean {
   if (fs.existsSync(configPath)) return false;
-  fs.mkdirSync(configPath.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
-  fs.writeFileSync(configPath, CONFIG_TEMPLATE, "utf8");
+  ensurePrivateDir(path.dirname(configPath));
+  writePrivateFile(configPath, CONFIG_TEMPLATE);
   return true;
 }
 
@@ -590,7 +640,7 @@ export function serializeConfig(cfg: GuardConfig): string {
       if (v !== null && typeof v === "object" && !Array.isArray(v)) walk(v as Record<string, unknown>, [...prefix, k]);
     }
   };
-  const { harness, projectConfigPath, ...rest } = cfg as unknown as Record<string, unknown>;
+  const { harness, projectConfigPath, projectConfigIgnored, ...rest } = cfg as unknown as Record<string, unknown>;
   walk(rest, []);
   return [...lines, ...sections].join("\n") + "\n";
 }
@@ -614,7 +664,7 @@ export function importConfig(importPath: string, configPath = userConfigPath()):
   const merged = deepMerge(existing, incoming);
   const backupPath = fs.existsSync(configPath) ? `${configPath}.import.bak` : undefined;
   if (backupPath) fs.copyFileSync(configPath, backupPath);
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  ensurePrivateDir(path.dirname(configPath));
   const lines: string[] = ["# agent-guard configuration (merged by config import)"];
   const sections: string[] = [];
   for (const [k, v] of Object.entries(merged)) {
@@ -635,6 +685,6 @@ export function importConfig(importPath: string, configPath = userConfigPath()):
   for (const [k, v] of Object.entries(merged)) {
     if (v !== null && typeof v === "object" && !Array.isArray(v)) emit(v as Record<string, unknown>, [k]);
   }
-  fs.writeFileSync(configPath, [...lines, ...sections].join("\n") + "\n", "utf8");
+  writePrivateFile(configPath, [...lines, ...sections].join("\n") + "\n");
   return { merged: true, backupPath };
 }

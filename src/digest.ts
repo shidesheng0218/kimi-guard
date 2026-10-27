@@ -1,7 +1,6 @@
 import { blockKindStats, blocksSince, countCallsSince, countCallsWindow, type BlockKindStat } from "./store.js";
 import { budgetSnapshot } from "./meter.js";
 import { loadConfig } from "./config.js";
-import { latestSessionId } from "./checkpoint.js";
 import { estSavedFromBlocks, STREAK_WINDOW_MS } from "./estSaved.js";
 import { calibrationHints } from "./status.js";
 
@@ -22,8 +21,7 @@ export interface DigestData {
 export function buildDigest(weeks = 1, now = Date.now()): DigestData {
   const cfg = loadConfig();
   const since = now - weeks * WEEK;
-  const sid = latestSessionId() ?? "unknown";
-  const snap = budgetSnapshot(sid, cfg.budget, now);
+  const snap = budgetSnapshot(cfg.budget, cfg.harness, now);
   const blocks = blocksSince(since);
   const kindStats = [...blocks.reduce((m, b) => m.set(b.kind, (m.get(b.kind) ?? 0) + 1), new Map<string, number>())].map(([kind, n]) => ({ kind, n }));
   const allTime: BlockKindStat[] = blockKindStats();

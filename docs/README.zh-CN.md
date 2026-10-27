@@ -106,6 +106,7 @@ kguard checkpoint       # 立即捕获一次研究状态快照
 kguard resume           # 输出可直接粘贴的恢复上下文块
 kguard run -- <任务描述>  # Wire 模式下的受监督无人值守运行（见下）
 kguard doctor           # 验证 node / 状态库 / 配置 / PATH / 探针
+agentguard clean [--dry-run]  # 清理过期运行日志/快照/事故报告并收紧权限
 kguard probe on|off|show [-n N]   # 抓取原始 hook payload
 kguard config init|show|get <key> # 管理 ~/.kimi-guard/config.toml
 agentguard watch        # 实时 TUI：跨 harness 会话、拦截流、配额水位
@@ -274,6 +275,14 @@ reservePercent = 10     # 给你保留的余量，Agent 永远不能吃掉
 subagentWeight = 5      # 每个派发子代理的请求折算
 precise = false         # 轮询官方 Kimi 用量 API 拿精确窗口（需 KIMI_API_KEY，sk-kimi-...）
                         # 任何错误都回退到事件估算——fail-open
+                        # 窗口按账号统计：同一 harness 的所有本地会话都计入
+                        # （`agentguard budget --session <id>` 仅用于调试单个会话）
+
+[retention]             # 磁盘产物保留（状态库流量另按 30 天清理）
+runsDays = 30           # 原始运行日志（wire.jsonl/stream.jsonl，含完整模型输出）
+checkpointsDays = 30
+incidentsDays = 90
+                        # 0 = 关闭该类清理；`agentguard clean` 可手动执行
 ```
 
 ## 工作原理

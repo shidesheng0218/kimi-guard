@@ -1,6 +1,7 @@
-import fs from "node:fs";
 import { callsSince, countBlocks, getMeta, pruneCallsAndEvents, recordBlock, recordCall, recordEvent, sessionsForSignature, setMeta } from "./store.js";
 import { probeLogPath } from "./paths.js";
+import { appendPrivateFile } from "./fsSecure.js";
+import { pruneArtifacts } from "./retention.js";
 import type { GuardConfig } from "./config.js";
 import { analyzeCall, analyzeCrossSession } from "./analysis.js";
 import { isKillSwitchTripped, resolveFindings } from "./policy.js";
@@ -24,7 +25,7 @@ export function probeEnabled(): boolean {
 
 export function appendProbe(event: string, payload: HookPayload): void {
   const line = JSON.stringify({ ts: Date.now(), event, payload }) + "\n";
-  fs.appendFileSync(probeLogPath(), line, "utf8");
+  appendPrivateFile(probeLogPath(), line);
 }
 
 export interface HookOutcome {
@@ -71,7 +72,7 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
 
   // Housekeeping: throttle-prune raw traffic (calls/events older than 30d).
   // Blocks are kept forever — feedback history is calibration data.
-  maybePrune(now);
+  maybePrune(now, cfg);
 
   const sessionId =
     (typeof payload["session_id"] === "string" && payload["session_id"]) ||
@@ -108,7 +109,7 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       return handlePostTool(event, cfg, payload, sessionId, now);
     case "Stop": {
       // Claude Code and Codex have no TurnStarted event; one Stop ≈ one completed turn ≈ 1+ requests
-      if (cfg.harness !== "kimi") recordEvent(sessionId, "turn", { origin: "stop" }, now);
+      if (cfg.harness !== "kimi") recordEvent(sessionId, "turn", { origin: "stop" }, now, cfg.harness);
       if (!cfg.verify.enabled || !cfg.verify.blockOnNoEvidence) return { code: 0 };
       if (!hasRecentEdits(sessionId, cfg, now)) return { code: 0 };
       if (hasEvidence(sessionId, cfg, now)) return { code: 0 };
@@ -119,25 +120,25 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       return handleGoalAnchor(payload, sessionId, cfg, now);
     }
     case "PreCompact":
-      recordEvent(sessionId, "compaction", { phase: "pre" }, now);
+      recordEvent(sessionId, "compaction", { phase: "pre" }, now, cfg.harness);
       setSessionMeta(sessionId, "last_compact_ts", String(now));
       captureCheckpoint(sessionId, "pre-compact", now, cfg);
       return { code: 0 };
     case "PostCompact":
-      recordEvent(sessionId, "compaction", { phase: "post" }, now);
+      recordEvent(sessionId, "compaction", { phase: "post" }, now, cfg.harness);
       return { code: 0 };
     case "TurnStarted":
-      recordEvent(sessionId, "turn", { origin: payload["origin_kind"] ?? payload["origin"] ?? "" }, now);
+      recordEvent(sessionId, "turn", { origin: payload["origin_kind"] ?? payload["origin"] ?? "" }, now, cfg.harness);
       return { code: 0 };
     case "SubagentStart":
-      recordEvent(sessionId, "subagent", { agent: payload["agent_name"] ?? "" }, now);
+      recordEvent(sessionId, "subagent", { agent: payload["agent_name"] ?? "" }, now, cfg.harness);
       return { code: 0 };
     case "StopFailure":
-      recordEvent(sessionId, "stop_failure", { error: String(payload["error_message"] ?? payload["error_type"] ?? "") }, now);
+      recordEvent(sessionId, "stop_failure", { error: String(payload["error_message"] ?? payload["error_type"] ?? "") }, now, cfg.harness);
       captureCheckpoint(sessionId, "stop-failure", now, cfg);
       return { code: 0 };
     case "Interrupt":
-      recordEvent(sessionId, "interrupt", { reason: String(payload["reason"] ?? "") }, now);
+      recordEvent(sessionId, "interrupt", { reason: String(payload["reason"] ?? "") }, now, cfg.harness);
       captureCheckpoint(sessionId, "interrupt", now, cfg);
       return { code: 0 };
     case "SessionEnd":
@@ -151,12 +152,15 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
 const PRUNE_INTERVAL_MS = 24 * 3_600_000;
 const PRUNE_AGE_MS = 30 * 86_400_000;
 
-function maybePrune(now: number): void {
+function maybePrune(now: number, cfg: GuardConfig): void {
   try {
     const last = Number(getMeta("last_prune_ts") ?? "0");
     if (now - last < PRUNE_INTERVAL_MS) return;
     setMeta("last_prune_ts", String(now));
     pruneCallsAndEvents(now - PRUNE_AGE_MS);
+    // Artifacts (run logs, checkpoints, incidents) contain model output; cap the
+    // walk per hook so a huge backlog can never spend the 5s hook budget.
+    pruneArtifacts(now, cfg.retention, { maxEntries: 200 });
   } catch {
     /* best effort */
   }
@@ -196,7 +200,7 @@ function handlePreToolUse(event: string, cfg: GuardConfig, payload: HookPayload,
   );
 
   if (cfg.budget.dispatchTools.includes(call.tool)) {
-    const budgetFinding = evaluateBudgetGate(sessionId, cfg.budget, now);
+    const budgetFinding = evaluateBudgetGate(cfg.budget, cfg.harness, now);
     if (budgetFinding) analysis.findings.unshift(budgetFinding);
   }
 
@@ -251,7 +255,7 @@ export function handleGoalAnchor(payload: HookPayload, sessionId: string, cfg: G
 
   const count = Number(getSessionMeta(sessionId, "anchor_count") ?? "0") + 1;
   setSessionMeta(sessionId, "anchor_count", String(count));
-  recordEvent(sessionId, "prompt", { chars: promptText.length }, now);
+  recordEvent(sessionId, "prompt", { chars: promptText.length }, now, cfg.harness);
 
   if (count === 1) {
     setSessionMeta(sessionId, "goal", promptText.slice(0, cfg.anchor.maxChars));
