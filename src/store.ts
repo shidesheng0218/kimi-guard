@@ -6,7 +6,7 @@ import { ensurePrivateDir, hardenPath } from "./fsSecure.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
-function sqliteCtor(): typeof DatabaseSync {
+export function sqliteCtor(): typeof DatabaseSync {
   return (nodeRequire("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 }
 
