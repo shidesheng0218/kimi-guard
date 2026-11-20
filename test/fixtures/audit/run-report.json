@@ -1,0 +1,31 @@
+{
+  "runId": "run-fixture-1",
+  "harness": "kimi",
+  "sessionId": "parent1",
+  "startedAtMs": 0,
+  "command": ["kimi", "--wire"],
+  "startedAt": "1970-01-01T00:00:00.000Z",
+  "finishedAt": "1970-01-01T00:01:00.000Z",
+  "durationMs": 60000,
+  "turns": 3,
+  "steps": 3,
+  "toolCalls": 4,
+  "stepRetries": [],
+  "blocks": [],
+  "steers": [],
+  "approvals": { "approved": 0, "rejected": 0 },
+  "tokenUsage": {
+    "input_other": 1000,
+    "output": 500,
+    "input_cache_read": 12000,
+    "input_cache_creation": 0
+  },
+  "finalStatus": "finished",
+  "endReason": "finished",
+  "resumes": 0,
+  "verifyRounds": 0,
+  "vetoes": 0,
+  "thinkingDominance": 0,
+  "reportPath": "",
+  "logPath": ""
+}

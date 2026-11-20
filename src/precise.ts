@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { getMeta, setMeta } from "./store.js";
 
 /**
@@ -34,11 +35,11 @@ export function preciseKeyConfigured(env: NodeJS.ProcessEnv = process.env): bool
   return Boolean(env.KIMI_API_KEY?.trim());
 }
 
-export function cachedPreciseUsage(cfg: PreciseBudgetConfig, now = Date.now()): PreciseUsage | null {
+export function cachedPreciseUsage(cfg: PreciseBudgetConfig, now = Date.now(), db?: DatabaseSync): PreciseUsage | null {
   if (!cfg.precise) return null;
   try {
-    const raw = getMeta("precise_usage");
-    const ts = Number(getMeta("precise_usage_ts") ?? "0");
+    const raw = getMeta("precise_usage", db);
+    const ts = Number(getMeta("precise_usage_ts", db) ?? "0");
     if (!raw || ts <= 0) return null;
     if (now - ts > cfg.preciseCacheSeconds * 1000) return null;
     const parsed = JSON.parse(raw) as Omit<PreciseUsage, "fetchedAt">;

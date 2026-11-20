@@ -74,6 +74,8 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
   const startedAt = Date.now();
   const report: RunReport = {
     runId,
+    harness: "codex",
+    startedAtMs: startedAt,
     command: [...(opts.command ?? ["codex"]), "exec", "--json", "<prompt>"],
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: "",
@@ -245,6 +247,7 @@ export async function runCodexSupervised(opts: CodexRunOptions): Promise<RunRepo
   recordEvent(runId, "run_end", { endReason: report.endReason, blocks: report.blocks.length, harness: "codex" }, Date.now(), "codex");
   report.durationMs = Date.now() - startedAt;
   report.finishedAt = new Date().toISOString();
+  report.sessionId = threadId || undefined;
   try {
     writePrivateFile(report.reportPath, JSON.stringify(report, null, 2));
   } catch {

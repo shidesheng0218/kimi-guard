@@ -185,6 +185,7 @@ kguard hook <event>     # (used by the CLI, reads JSON from stdin)
 agentguard watch        # live TUI: sessions, interventions and budget across all harnesses
 agentguard replay [run] # annotated timeline of a recorded run (blocks highlighted)
 agentguard bench        # public benchmark: scripted pathological agents vs the guard, scored
+agentguard audit        # local quota forensics: burn timeline, attribution, retries, run tokens
 ```
 
 ### `agentguard run` — supervised headless runs
@@ -314,6 +315,23 @@ Your own config keys always override the profile. `agentguard calibrate` suggest
 your false-positive feedback — it prints TOML, it never edits your config. Hit a false positive anyway?
 [Report it](https://github.com/shidesheng0218/kimi-guard/issues/new?template=false-positive.md) — one paste
 from `agentguard blocks` is all we need; these reports calibrate the public defaults.
+
+## Quota audit — where did the quota go?
+
+`agentguard audit` reads the local state DB **read-only** and explains a window of usage: a 15-minute burn timeline, session/agent/tool attribution, retry signals, supervised-run token detail, and deterministic findings.
+
+```sh
+agentguard audit                          # last 24h, text
+agentguard audit --since 7d --md          # shareable Markdown
+agentguard audit --session <id> --json     # one session (includes its subagents)
+```
+
+- **Read-only by construction.** It does not create the DB, run migrations, or write. If the guard was never used, it prints a zero report with `guard-inactive` instead of creating an empty file.
+- **Observed vs estimated vs inferred.** Calls, turns, subagent dispatches, blocks, retries and session/agent attribution are observed. Request burn and projected 5h usage are estimated. Weighted subagent share and cache-amplification interpretation are inferred. Every report prints the three groups.
+- **Token detail needs a supervised run.** Hooks-only mode sees tool calls and outputs, not per-turn cache tokens. Cache read/creation and `cache-amplification` findings come from `agentguard run` reports; the report says so explicitly.
+- **Calls and blocks are all-harness** (they carry no harness column); turns/subagents/retries can be scoped with `--harness`.
+
+`audit` exits 0 for a report and 1 only for invalid arguments. It never calls the network.
 
 ## Configuration
 

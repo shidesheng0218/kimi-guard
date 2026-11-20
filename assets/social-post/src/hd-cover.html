@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1440px; }
+  body {
+    font-family:"PingFang SC",-apple-system,sans-serif;
+    color:#3b3733; position:relative; overflow:hidden;
+    background:
+      linear-gradient(rgba(72,105,160,.075) 1.5px, transparent 1.5px),
+      linear-gradient(90deg, rgba(72,105,160,.075) 1.5px, transparent 1.5px),
+      #fbf8ee;
+    background-size:45px 45px;
+  }
+  .hand { font-family:"Marker Felt","Bradley Hand",cursive; }
+  .wrap { position:absolute; inset:0; padding:88px 80px; display:flex; flex-direction:column; }
+  .wrap > * { flex-shrink:0; }
+
+  /* masking tape */
+  .tape { position:absolute; width:150px; height:40px; background:rgba(248,214,124,.6);
+          box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .tape::before,.tape::after { content:""; position:absolute; top:0; bottom:0; width:6px;
+          background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(0,0,0,.05) 3px 5px); }
+  .tape::before{left:0} .tape::after{right:0}
+
+  /* top brand note */
+  .brand { position:relative; background:#fff; padding:38px 42px 32px;
+           border:2.5px solid #3b3733;
+           border-radius:255px 15px 225px 15px/15px 225px 15px 255px;
+           transform:rotate(-1.2deg);
+           display:flex; align-items:center; gap:30px;
+           box-shadow:2px 3px 0 rgba(59,55,51,.12); }
+  .brand .shield { width:110px; height:130px; flex:none; }
+  .brand h1 { font-size:88px; line-height:1; letter-spacing:0; }
+  .brand .sub { font-size:30px; color:#6b645c; margin-top:12px; font-weight:500; }
+  .t1 { top:-20px; left:70px; transform:rotate(-5deg); }
+  .t2 { top:-18px; right:80px; transform:rotate(4deg); }
+
+  /* hero written on paper */
+  .hero { margin-top:100px; }
+  .hero .l1 { font-size:60px; font-weight:600; line-height:1.4; }
+  .hl-y { background:linear-gradient(180deg, transparent 52%, rgba(255,214,64,.85) 52%, rgba(255,214,64,.85) 92%, transparent 92%); padding:0 6px; }
+  .hl-p { background:linear-gradient(180deg, transparent 52%, rgba(249,168,212,.7) 52%, rgba(249,168,212,.7) 92%, transparent 92%); padding:0 6px; }
+  .hero .l2 { font-size:88px; font-weight:800; margin-top:26px; position:relative; display:inline-block; }
+  .spark { position:absolute; right:-84px; top:-46px; }
+
+  /* pills */
+  .pills { margin-top:76px; display:flex; gap:26px; }
+  .pill { background:#fff; border:2.5px solid #3b3733; padding:16px 28px; font-size:28px; font-weight:600;
+          box-shadow:2px 2px 0 rgba(59,55,51,.12); }
+  .p1 { border-radius:225px 25px 255px 25px/25px 255px 25px 225px; transform:rotate(-1.6deg); }
+  .p2 { border-radius:25px 255px 25px 225px/255px 25px 225px 25px; transform:rotate(1.1deg); background:#fff; }
+  .p3 { border-radius:255px 25px 225px 25px/25px 225px 25px 255px; transform:rotate(-0.8deg); }
+
+  .sp { flex:1; }
+
+  /* install note */
+  .note { position:relative; background:#fffbe9; padding:30px 34px; transform:rotate(.8deg);
+          border:2.5px solid #3b3733;
+          border-radius:15px 225px 15px 255px/225px 15px 255px 15px;
+          box-shadow:2px 3px 0 rgba(59,55,51,.12); }
+  .note .cap { font-size:24px; color:#8a6d1a; margin-bottom:10px; font-weight:500; }
+  .note code { font-family:"SF Mono",Menlo,monospace; font-size:31px; color:#2c6e49; font-weight:600; }
+  .note .am { color:#c0392b; }
+  .t3 { top:-22px; left:50%; margin-left:-75px; transform:rotate(2deg); }
+
+  .foot { margin-top:34px; text-align:center; font-size:25px; color:#756d63; }
+  .foot .hand { font-size:26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <div class="tape t1"></div><div class="tape t2"></div>
+    <svg class="shield" viewBox="0 0 100 128" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 18 C6 18 5 55 8 72 C11 90 30 106 50 116 C70 106 89 90 92 72 C95 55 94 18 94 18 L50 4 Z"
+            fill="rgba(125,116,207,.14)" stroke="#3b3733" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M9 15 C9 15 8 54 11 71" fill="none" stroke="#3b3733" stroke-width="2" stroke-linecap="round" opacity=".45"/>
+      <path d="M26 62 C33 70 40 80 47 87 C58 70 68 55 76 42" fill="none" stroke="#c0392b" stroke-width="6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <h1 class="hand">kimi-guard</h1>
+      <div class="sub">给 AI 编程装一个「熔断器」</div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="l1">AI 写代码<span class="hl-p">反复空转</span>，</div>
+    <div class="l1"><span class="hl-y">token 烧到心疼？</span></div>
+    <div class="l2">装个熔断器 ⚡
+      <svg class="spark" width="72" height="72" viewBox="0 0 72 72">
+        <path d="M36 4 L40 26 L62 18 L46 34 L68 44 L44 44 L50 66 L34 48 L18 64 L26 44 L4 42 L26 32 L14 14 L34 26 Z"
+              fill="none" stroke="#e1a400" stroke-width="3" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="pills">
+    <div class="pill p1">🔁 13 重循环检测</div>
+    <div class="pill p2">⛔ 熔断止损</div>
+    <div class="pill p3">💾 中断续跑</div>
+  </div>
+
+  <div class="sp"></div>
+
+  <div class="note">
+    <div class="tape t3"></div>
+    <div class="cap">两行装好，就这样 👇</div>
+    <code>$ npm i -g <span class="am">kimi-guard</span> &amp;&amp; kguard install</code>
+  </div>
+
+  <div class="foot">MIT 开源 · <span class="hand">github.com/shidesheng0218/kimi-guard</span></div>
+</div>
+</body>
+</html>

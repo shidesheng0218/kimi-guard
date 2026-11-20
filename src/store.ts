@@ -6,7 +6,7 @@ import { ensurePrivateDir, hardenPath } from "./fsSecure.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
-function sqliteCtor(): typeof DatabaseSync {
+export function sqliteCtor(): typeof DatabaseSync {
   return (nodeRequire("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 }
 
@@ -193,9 +193,9 @@ export function recordEvent(
     .run(sessionId, kind, JSON.stringify(meta), ts, harness);
 }
 
-export function countEvents(sessionId: string, kinds: string[], sinceTs: number): number {
+export function countEvents(sessionId: string, kinds: string[], sinceTs: number, db?: DatabaseSync): number {
   const placeholders = kinds.map(() => "?").join(",");
-  const row = openDb()
+  const row = (db ?? openDb())
     .prepare(
       `SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND kind IN (${placeholders}) AND ts >= ?`,
     )
@@ -204,19 +204,18 @@ export function countEvents(sessionId: string, kinds: string[], sinceTs: number)
 }
 
 /** Account-wide count for one harness (all sessions in this state db). */
-export function countEventsForHarness(harness: string, kinds: string[], sinceTs: number): number {
+export function countEventsForHarness(harness: string, kinds: string[], sinceTs: number, db?: DatabaseSync, hasHarness = true): number {
   const placeholders = kinds.map(() => "?").join(",");
-  const row = openDb()
-    .prepare(
-      `SELECT COUNT(*) AS n FROM events WHERE harness = ? AND kind IN (${placeholders}) AND ts >= ?`,
-    )
-    .get(harness, ...kinds, sinceTs) as { n: number };
+  const sql = hasHarness
+    ? `SELECT COUNT(*) AS n FROM events WHERE harness = ? AND kind IN (${placeholders}) AND ts >= ?`
+    : `SELECT COUNT(*) AS n FROM events WHERE kind IN (${placeholders}) AND ts >= ?`;
+  const row = (db ?? openDb()).prepare(sql).get(...(hasHarness ? [harness, ...kinds, sinceTs] : [...kinds, sinceTs])) as { n: number };
   return Number(row?.n ?? 0);
 }
 
-export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: number): number | null {
+export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: number, db?: DatabaseSync): number | null {
   const placeholders = kinds.map(() => "?").join(",");
-  const row = openDb()
+  const row = (db ?? openDb())
     .prepare(
       `SELECT MIN(ts) AS m FROM events WHERE session_id = ? AND kind IN (${placeholders}) AND ts >= ?`,
     )
@@ -225,13 +224,12 @@ export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: numbe
 }
 
 /** Oldest matching event for one harness across all sessions (window reset anchor). */
-export function oldestEventTsForHarness(harness: string, kinds: string[], sinceTs: number): number | null {
+export function oldestEventTsForHarness(harness: string, kinds: string[], sinceTs: number, db?: DatabaseSync, hasHarness = true): number | null {
   const placeholders = kinds.map(() => "?").join(",");
-  const row = openDb()
-    .prepare(
-      `SELECT MIN(ts) AS m FROM events WHERE harness = ? AND kind IN (${placeholders}) AND ts >= ?`,
-    )
-    .get(harness, ...kinds, sinceTs) as { m: number | null };
+  const sql = hasHarness
+    ? `SELECT MIN(ts) AS m FROM events WHERE harness = ? AND kind IN (${placeholders}) AND ts >= ?`
+    : `SELECT MIN(ts) AS m FROM events WHERE kind IN (${placeholders}) AND ts >= ?`;
+  const row = (db ?? openDb()).prepare(sql).get(...(hasHarness ? [harness, ...kinds, sinceTs] : [...kinds, sinceTs])) as { m: number | null };
   return row?.m ?? null;
 }
 
@@ -367,8 +365,8 @@ export function purgeSession(sessionId: string): void {
   d.prepare("DELETE FROM blocks WHERE session_id = ?").run(sessionId);
 }
 
-export function getMeta(key: string): string | undefined {
-  const row = openDb().prepare("SELECT v FROM meta WHERE k = ?").get(key) as { v: string } | undefined;
+export function getMeta(key: string, db?: DatabaseSync): string | undefined {
+  const row = (db ?? openDb()).prepare("SELECT v FROM meta WHERE k = ?").get(key) as { v: string } | undefined;
   return row?.v;
 }
 
