@@ -21,7 +21,7 @@ afterEach(() => {
 
 function fakeReport(overrides: Partial<RunReport>): RunReport {
   return {
-    runId: "r", command: [], startedAt: "", finishedAt: "", durationMs: 0,
+    runId: "r", harness: "kimi", startedAtMs: 0, command: [], startedAt: "", finishedAt: "", durationMs: 0,
     turns: 1, steps: 1, toolCalls: 4, stepRetries: [], blocks: [], steers: [],
     approvals: { approved: 0, rejected: 0 },
     tokenUsage: { input_other: 0, output: 0, input_cache_read: 0, input_cache_creation: 0 },
