@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { countEvents, countEventsForHarness, countBlocks, oldestEventTs, oldestEventTsForHarness, type StatusReport } from "./store.js";
 import { cachedPreciseUsage } from "./precise.js";
 import type { Finding } from "./analysis.js";
@@ -90,12 +91,13 @@ export function budgetSnapshot(
   harness: string,
   now = Date.now(),
   scopeSessionId?: string,
+  db?: DatabaseSync,
 ): BudgetSnapshot {
   const scoped = scopeSessionId !== undefined;
   const count = (kinds: string[], since: number): number =>
-    scoped ? countEvents(scopeSessionId!, kinds, since) : countEventsForHarness(harness, kinds, since);
+    scoped ? countEvents(scopeSessionId!, kinds, since, db) : countEventsForHarness(harness, kinds, since, db);
   const oldest = (kinds: string[], since: number): number | null =>
-    scoped ? oldestEventTs(scopeSessionId!, kinds, since) : oldestEventTsForHarness(harness, kinds, since);
+    scoped ? oldestEventTs(scopeSessionId!, kinds, since, db) : oldestEventTsForHarness(harness, kinds, since, db);
 
   const turns = count(["turn"], now - HOUR);
   const subagents = count(["subagent"], now - HOUR);
@@ -119,7 +121,7 @@ export function budgetSnapshot(
 
   // Precise mode: a fresh official-API reading overrides the event estimates.
   // The burn rate stays event-based (the API has no per-hour breakdown).
-  const precise = cachedPreciseUsage(cfg);
+  const precise = cachedPreciseUsage(cfg, now, db);
   if (precise?.fiveHour && precise.fiveHour.limit > 0) {
     five.used = precise.fiveHour.used;
     five.limit = precise.fiveHour.limit;
