@@ -91,7 +91,7 @@ describe("D3: edit revert loops", () => {
     const a = mk("WriteFile", { file_path: "a.ts", content: "v1" }, { file: "a.ts" });
     const b = mk("WriteFile", { file_path: "a.ts", content: "v2" }, { file: "a.ts" });
     const history = [a, b, a];
-    const r = analyzeEditRevert(history, c, Date.now());
+    const r = analyzeEditRevert(history, { tool: "WriteFile", args: { file_path: "a.ts", content: "v1" } }, c, Date.now());
     expect(r[0]?.kind).toBe("editRevert");
     expect(r[0]?.severity).toBe("warn");
   });
@@ -99,7 +99,20 @@ describe("D3: edit revert loops", () => {
   it("silent on converging edits", () => {
     const c = structuredClone(defaultConfig);
     const history = [0, 1, 2].map((i) => mk("WriteFile", { file_path: "a.ts", content: `v${i}` }, { file: "a.ts" }));
-    expect(analyzeEditRevert(history, c, Date.now())).toHaveLength(0);
+    expect(
+      analyzeEditRevert(history, { tool: "WriteFile", args: { file_path: "a.ts", content: "v3" } }, c, Date.now()),
+    ).toHaveLength(0);
+  });
+
+  it("silent when the proposed call is the escape (read or another file)", () => {
+    const c = structuredClone(defaultConfig);
+    const a = mk("WriteFile", { file_path: "a.ts", content: "v1" }, { file: "a.ts" });
+    const b = mk("WriteFile", { file_path: "a.ts", content: "v2" }, { file: "a.ts" });
+    const history = [a, b, a];
+    expect(analyzeEditRevert(history, { tool: "Read", args: { file_path: "a.ts" } }, c, Date.now())).toHaveLength(0);
+    expect(
+      analyzeEditRevert(history, { tool: "WriteFile", args: { file_path: "other.ts", content: "x" } }, c, Date.now()),
+    ).toHaveLength(0);
   });
 });
 

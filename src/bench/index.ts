@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { runSupervised, type RunReport } from "../wire/supervisor.js";
 import { defaultConfig } from "../config.js";
 import { guardHome } from "../paths.js";
+import { ensurePrivateDir, writePrivateFile } from "../fsSecure.js";
 
 /**
  * Public benchmark suite: scripted pathological scenarios run against the
@@ -263,9 +264,9 @@ export async function runBench(opts: BenchOptions): Promise<{ results: BenchResu
   let reportPath: string | undefined;
   if (opts.save) {
     const dir = path.join(guardHome(), "bench");
-    fs.mkdirSync(dir, { recursive: true });
+    ensurePrivateDir(dir);
     reportPath = path.join(dir, `bench-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    fs.writeFileSync(reportPath, JSON.stringify({ harness: opts.harness ?? "fixture", at: new Date().toISOString(), total, results }, null, 2));
+    writePrivateFile(reportPath, JSON.stringify({ harness: opts.harness ?? "fixture", at: new Date().toISOString(), total, results }, null, 2));
   }
   return { results, total, reportPath };
 }

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { guardHome } from "./paths.js";
+import { ensurePrivateDir, writePrivateFile } from "./fsSecure.js";
 import { listRuns, parseRunLog, renderTimeline } from "./replay.js";
 import { listBlocks } from "./store.js";
 import { estSavedFromWindow } from "./estSaved.js";
@@ -94,9 +95,9 @@ export function writeIncident(runId: string, now = Date.now()): { path: string; 
   const md = buildIncidentMarkdown(runId, now);
   if (md === null) return null;
   const dir = incidentDir();
-  fs.mkdirSync(dir, { recursive: true });
+  ensurePrivateDir(dir);
   const file = path.join(dir, `${runId}.md`);
-  fs.writeFileSync(file, md, "utf8");
+  writePrivateFile(file, md);
   return { path: file, markdown: md };
 }
 

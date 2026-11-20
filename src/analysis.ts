@@ -1,5 +1,5 @@
 import type { CallRow } from "./store.js";
-import { fingerprint } from "./events.js";
+import { extractFile, fingerprint } from "./events.js";
 import type { GuardConfig } from "./config.js";
 import { editTools, readTools, searchTools } from "./toolsets.js";
 
@@ -112,14 +112,25 @@ export function analyzeRepetition(
  * Periodic loop detection: A→A→A (period 1, covered by repetition too but
  * catches unwatched tools), A→B→A→B (period 2), A→B→C→A→B→C (period 3).
  * Requires several full repetitions of the period before firing.
+ *
+ * The proposed call is appended to the sequence before matching, so only a
+ * call that CONTINUES the cycle is blocked. A different call (the agent's
+ * escape attempt) must always be allowed — otherwise the history never
+ * changes and the agent can never recover.
  */
-export function analyzeCycles(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
+export function analyzeCycles(
+  history: CallRow[],
+  proposed: { tool: string; argsHash: string },
+  cfg: GuardConfig,
+  now: number,
+): Finding[] {
   if (!cfg.cycle.enabled) return allow;
   const since = now - cfg.cycle.windowMinutes * 60_000;
   const recent = history
     .filter((r) => r.ts >= since)
-    .slice(-16)
+    .slice(-15)
     .map((r) => `${r.tool_name}:${r.args_hash}`);
+  recent.push(`${proposed.tool}:${proposed.argsHash}`);
   if (recent.length < 8) return allow;
 
   const findings: Finding[] = [];
@@ -161,7 +172,12 @@ export function analyzeCycles(history: CallRow[], cfg: GuardConfig, now: number)
  * No-information-gain detection: different arguments but byte-identical
  * (normalized) output repeated — the model is spinning without new data.
  */
-export function analyzeNoGain(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
+export function analyzeNoGain(
+  history: CallRow[],
+  proposed: { tool: string },
+  cfg: GuardConfig,
+  now: number,
+): Finding[] {
   if (!cfg.noGain.enabled) return allow;
   const since = now - cfg.noGain.windowMinutes * 60_000;
   // Edit/write tools return uniform confirmations ("written") by design — identical
@@ -180,6 +196,10 @@ export function analyzeNoGain(history: CallRow[], cfg: GuardConfig, now: number)
   for (const [key, n] of byPair) {
     if (n < cfg.noGain.warnAt) continue;
     const tool = key.split(":")[0]!;
+    // Only the call that keeps hitting the stagnant tool is the loop. Blocking
+    // an edit (or any other tool) based on history alone would forbid the very
+    // action that breaks the loop.
+    if (tool !== proposed.tool) continue;
     if (n >= cfg.noGain.blockAt) {
       findings.push({
         kind: "noGain",
@@ -261,11 +281,20 @@ export function analyzeNoProgress(
 /**
  * Edit churn ("thrashing"): the same file edited over and over, usually a
  * sign the agent is guessing instead of understanding the failure.
+ * Only an edit to the churning file is blocked — a read or an edit to another
+ * file is the agent's way out and must stay available.
  */
-export function analyzeChurn(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
+export function analyzeChurn(
+  history: CallRow[],
+  proposed: { tool: string; args: unknown },
+  cfg: GuardConfig,
+  now: number,
+): Finding[] {
   if (!cfg.churn.enabled) return allow;
-  const since = now - cfg.churn.windowMinutes * 60_000;
   const tools = editTools(cfg);
+  if (!tools.has(proposed.tool)) return allow;
+  const proposedFile = extractFile(proposed.args);
+  const since = now - cfg.churn.windowMinutes * 60_000;
   const byFile = new Map<string, number>();
   for (const r of history) {
     if (r.ts < since || !r.file_path || !tools.has(r.tool_name)) continue;
@@ -273,6 +302,7 @@ export function analyzeChurn(history: CallRow[], cfg: GuardConfig, now: number):
   }
   const findings: Finding[] = [];
   for (const [file, n] of byFile) {
+    if (proposedFile && proposedFile !== file) continue;
     if (n >= cfg.churn.blockAt) {
       findings.push({
         kind: "churn",
@@ -502,7 +532,10 @@ export function fuzzyKey(tool: string, argsJson: string): string {
   try {
     const obj = JSON.parse(argsJson) as Record<string, unknown>;
     const parts: string[] = [];
-    for (const v of Object.values(obj)) {
+    // Sort keys so the same argument set in a different key order still maps to
+    // one signature (the message promises "order" tolerance).
+    for (const k of Object.keys(obj).sort()) {
+      const v = obj[k];
       if (typeof v === "string") parts.push(v);
       else if (v !== null && v !== undefined) parts.push(JSON.stringify(v));
     }
@@ -513,13 +546,22 @@ export function fuzzyKey(tool: string, argsJson: string): string {
   return `${tool}:${text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, "")}`;
 }
 
-export function analyzeNearRepeat(history: CallRow[], cfg: GuardConfig, now = Date.now()): Finding[] {
+export function analyzeNearRepeat(
+  history: CallRow[],
+  proposed: { tool: string; args: unknown },
+  cfg: GuardConfig,
+  now = Date.now(),
+): Finding[] {
   if (!cfg.nearRepeat.enabled) return allow;
   const since = now - cfg.nearRepeat.windowMinutes * 60_000;
+  // Only the proposed call's own fuzzy signature is under scrutiny. Counting
+  // every signature in history would block an unrelated Edit/Read as well.
+  const proposedKey = fuzzyKey(proposed.tool, JSON.stringify(proposed.args ?? {}));
   const byKey = new Map<string, { n: number; tool: string }>();
   for (const r of history) {
     if (r.ts < since) continue;
     const key = fuzzyKey(r.tool_name, r.args_json);
+    if (key !== proposedKey) continue;
     const cur = byKey.get(key) ?? { n: 0, tool: r.tool_name };
     cur.n++;
     byKey.set(key, cur);
@@ -552,12 +594,20 @@ export function analyzeNearRepeat(history: CallRow[], cfg: GuardConfig, now = Da
 
 /**
  * Edit revert loops: same file written with content A → B → A — the classic
- * "editing without understanding" oscillation. Warn-only.
+ * "editing without understanding" oscillation. Warn-only, and only for a
+ * proposed edit to the oscillating file (a read/shell call is an escape).
  */
-export function analyzeEditRevert(history: CallRow[], cfg: GuardConfig, now: number): Finding[] {
+export function analyzeEditRevert(
+  history: CallRow[],
+  proposed: { tool: string; args: unknown },
+  cfg: GuardConfig,
+  now: number,
+): Finding[] {
   if (!cfg.churn.enabled) return allow;
-  const since = now - cfg.churn.windowMinutes * 60_000;
   const edits = editToolSet(cfg);
+  if (!edits.has(proposed.tool)) return allow;
+  const proposedFile = extractFile(proposed.args);
+  const since = now - cfg.churn.windowMinutes * 60_000;
   const byFile = new Map<string, string[]>();
   for (const r of history) {
     if (r.ts < since || !r.file_path || !edits.has(r.tool_name)) continue;
@@ -566,6 +616,7 @@ export function analyzeEditRevert(history: CallRow[], cfg: GuardConfig, now: num
     byFile.set(r.file_path, arr);
   }
   for (const [file, hashes] of byFile) {
+    if (proposedFile && proposedFile !== file) continue;
     const tail = hashes.slice(-4);
     if (tail.length < 3) continue;
     // A→B→A (last three) or A→B→A→B (last four)
@@ -644,14 +695,14 @@ export function analyzeCall(
 ): AnalysisResult {
   const findings = [
     ...analyzeRepetition(history, proposed, cfg, now),
-    ...analyzeCycles(history, cfg, now),
-    ...analyzeNoGain(history, cfg, now),
+    ...analyzeCycles(history, proposed, cfg, now),
+    ...analyzeNoGain(history, proposed, cfg, now),
     ...analyzeNoGainFuzzy(history, proposed, cfg, now),
-    ...analyzeChurn(history, cfg, now),
+    ...analyzeChurn(history, proposed, cfg, now),
     ...analyzeNoProgress(history, proposed, cfg, now),
-    ...analyzeNearRepeat(history, cfg, now),
+    ...analyzeNearRepeat(history, proposed, cfg, now),
     ...analyzeArgSimilarity(history, proposed, cfg, now),
-    ...analyzeEditRevert(history, cfg, now),
+    ...analyzeEditRevert(history, proposed, cfg, now),
     ...analyzeExplore(history, proposed, cfg, now),
   ];
   const withCompound = compoundUpgradeLocal(findings, cfg.policy.compoundBlocks);

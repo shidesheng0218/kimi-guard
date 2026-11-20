@@ -52,12 +52,35 @@ describe("block reason persistence", () => {
     d.close();
 
     openDb();
-    expect(getMeta("schema_version")).toBe("5");
+    expect(getMeta("schema_version")).toBe("6");
     const rows = listBlocks();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.reason).toBeNull();
     expect(recordBlock("new", "Shell", "churn", Date.now(), "why")).toBeGreaterThan(0);
     expect(listBlocks()[0]!.reason).toBe("why");
+  });
+
+  it("v5 → v6 migration adds events.harness (legacy rows belong to kimi)", () => {
+    resetDbForTests();
+    const file = path.join(tmp, "state.db");
+    const { DatabaseSync } = nodeRequire("node:sqlite") as typeof import("node:sqlite");
+    const d = new DatabaseSync(file);
+    d.exec(`
+      CREATE TABLE calls (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, tool_name TEXT NOT NULL, args_hash TEXT NOT NULL, args_json TEXT NOT NULL, output_hash TEXT, output_sample TEXT, file_path TEXT, status TEXT NOT NULL, ts INTEGER NOT NULL);
+      CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, kind TEXT NOT NULL, meta_json TEXT NOT NULL, ts INTEGER NOT NULL);
+      CREATE TABLE blocks (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, tool_name TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, feedback TEXT, reason TEXT);
+      CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+      INSERT INTO meta (k, v) VALUES ('schema_version', '5');
+      INSERT INTO events (session_id, kind, meta_json, ts) VALUES ('old', 'turn', '{}', 42);
+    `);
+    d.close();
+
+    const db = openDb();
+    expect(getMeta("schema_version")).toBe("6");
+    const cols = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+    expect(cols.some((c) => c.name === "harness")).toBe(true);
+    const row = db.prepare("SELECT harness FROM events WHERE session_id = 'old'").get() as { harness: string };
+    expect(row.harness).toBe("kimi");
   });
 });
 

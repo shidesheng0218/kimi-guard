@@ -91,7 +91,7 @@ describe("precise metering integration", () => {
     const usage = await refreshPreciseUsage(cfg, { ...process.env, KIMI_API_KEY: "test-key" });
     expect(usage?.fiveHour?.used).toBe(187);
 
-    const snap = budgetSnapshot("s1", cfg, now);
+    const snap = budgetSnapshot(cfg, "kimi", now);
     expect(snap.precise).toBe(true);
     expect(snap.fiveHour.used).toBe(187); // not 1
     expect(snap.weekly.used).toBe(900);
@@ -119,7 +119,7 @@ describe("precise metering integration", () => {
     const cfg = { ...budgetCfg(), precise: true, preciseUrl: "http://127.0.0.1:1" }; // unreachable
     const usage = await refreshPreciseUsage(cfg, { ...process.env, KIMI_API_KEY: "k" });
     expect(usage).toBeNull();
-    const snap = budgetSnapshot("s1", cfg);
+    const snap = budgetSnapshot(cfg, "kimi");
     expect(snap.precise).toBe(false);
     expect(snap.fiveHour.used).toBe(1);
   });

@@ -31,7 +31,11 @@ jobs:
           node-version: "22"
       - run: npm ci && npm run build
       - name: Run the composite action against a fake looping agent
+        id: guard
         uses: ./
+        # The run is EXPECTED to exit 2: the guard intervenes on the looping
+        # agent. Assert the intervention below instead of failing the job here.
+        continue-on-error: true
         with:
           prompt: "find all TODO markers"
           harness: kimi
@@ -41,3 +45,10 @@ jobs:
           max-minutes: "2"
         env:
           FAKE_SCENARIO: loop
+
+      - name: Assert the guard intervened
+        shell: bash
+        run: |
+          echo "end-reason=${{ steps.guard.outputs.end-reason }} blocks=${{ steps.guard.outputs.blocks }}"
+          test -n "${{ steps.guard.outputs.report-path }}"
+          test "${{ steps.guard.outputs.blocks }}" -ge 1

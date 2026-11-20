@@ -26,6 +26,16 @@
 
 ---
 
+## Which one do I need?
+
+agent-guard supervises the agent **while it runs** — loops, quota, false completion, checkpoints. It does not install skills, presets or static command rules. For those, use **[kimi-boost](https://github.com/shidesheng0218/kimi-boost)**. The two are independent tools: install either alone, or both in any order. They write only their own managed blocks — see [docs/relationship.md](docs/relationship.md) for the coexistence contract.
+
+| What you want | Install |
+|---|---|
+| Stack conventions, skills/agents/commands, static guardrails, config updates | kimi-boost |
+| Stop runaway loops, quota burn, false completion, or run unattended CI | agent-guard |
+| Both | Install in any order; each writes only its own managed block |
+
 ## Why
 
 Kimi Code CLI is a great open-source coding agent, but its subagent system has known reliability gaps (see issues [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142), [#2368](https://github.com/MoonshotAI/kimi-cli/issues/2368), [#2578](https://github.com/MoonshotAI/kimi-cli/issues/2578)):
@@ -168,12 +178,14 @@ kguard checkpoint       # capture a research-state checkpoint now
 kguard resume           # print a paste-ready context block from the latest checkpoint
 kguard run -- <prompt>  # supervised headless run in Wire mode (see below)
 kguard doctor           # verify node/state db/config/PATH/probe
+agentguard clean [--dry-run]  # prune old runs/checkpoints/incidents + tighten permissions
 kguard probe on|off|show [−n N]   # capture raw hook payloads
 kguard config init|show|get <key> # manage ~/.kimi-guard/config.toml
 kguard hook <event>     # (used by the CLI, reads JSON from stdin)
 agentguard watch        # live TUI: sessions, interventions and budget across all harnesses
 agentguard replay [run] # annotated timeline of a recorded run (blocks highlighted)
 agentguard bench        # public benchmark: scripted pathological agents vs the guard, scored
+agentguard audit        # local quota forensics: burn timeline, attribution, retries, run tokens
 ```
 
 ### `agentguard run` — supervised headless runs
@@ -199,7 +211,7 @@ What the supervisor does (Kimi, Wire protocol — in-process, no exit codes):
 - **kill switch**: after N blocks it cancels the turn and checkpoints
 - approval policy: default rejects with feedback (headless-safe), `--yolo` approves
 - writes a run report (`report.json`) + raw wire log (`wire.jsonl`) under `~/.agent-guard/runs/`
-- exit code 0 on clean finish, 2 on any intervention-triggered end — CI-friendly
+- exit code 0 only when the run finished cleanly with zero interventions; 2 when the guard intervened (any block, including ones recorded by the installed hooks) or the run ended abnormally — CI-friendly
 
 The Claude driver (`--harness claude`) spawns `claude -p --output-format stream-json` and supervises the
 event stream: same analyzers and state db (shared with the installed hooks, which do the actual blocking),
@@ -267,8 +279,16 @@ plugin output directly (that's all the protocol is — a script that prints).
 - **`agentguard status` / `report --json`** show the same `estSaved` estimate so every block is a visible win.
 - **Project config**: a `.agentguard.toml` at your repo root overrides user config (`defaults < profile < user
   < project`) — team-shared rules checked into the repo. `agentguard config init --project` scaffolds it.
+  **Trust boundary:** a repo file is untrusted input. It may tune thresholds/exemptions, but `[notify]`,
+  `[verify.veto]`, `budget.precise` and `budget.preciseUrl` are ignored from project files — network and
+  credential settings are user-config only. `agentguard status` lists any ignored keys.
 - **`agentguard config export` / `import <file>`** — your tuned thresholds and exemptions become a portable,
   shareable asset (backup before every import).
+
+- **Local data stays local (and owner-only)**: the state db, probe log, run logs, checkpoints and
+  incidents are created `0700`/`0600`; `[retention]` + `agentguard clean` prune old artifacts. The db
+  stores tool arguments (2KB) and output samples (1KB) for loop detection — treat `~/.agent-guard` as
+  sensitive on shared machines.
 
 ### Use in CI (GitHub Action)
 
@@ -295,6 +315,23 @@ Your own config keys always override the profile. `agentguard calibrate` suggest
 your false-positive feedback — it prints TOML, it never edits your config. Hit a false positive anyway?
 [Report it](https://github.com/shidesheng0218/kimi-guard/issues/new?template=false-positive.md) — one paste
 from `agentguard blocks` is all we need; these reports calibrate the public defaults.
+
+## Quota audit — where did the quota go?
+
+`agentguard audit` reads the local state DB **read-only** and explains a window of usage: a 15-minute burn timeline, session/agent/tool attribution, retry signals, supervised-run token detail, and deterministic findings.
+
+```sh
+agentguard audit                          # last 24h, text
+agentguard audit --since 7d --md          # shareable Markdown
+agentguard audit --session <id> --json     # one session (includes its subagents)
+```
+
+- **Read-only by construction.** It does not create the DB, run migrations, or write. If the guard was never used, it prints a zero report with `guard-inactive` instead of creating an empty file.
+- **Observed vs estimated vs inferred.** Calls, turns, subagent dispatches, blocks, retries and session/agent attribution are observed. Request burn and projected 5h usage are estimated. Weighted subagent share and cache-amplification interpretation are inferred. Every report prints the three groups.
+- **Token detail needs a supervised run.** Hooks-only mode sees tool calls and outputs, not per-turn cache tokens. Cache read/creation and `cache-amplification` findings come from `agentguard run` reports; the report says so explicitly.
+- **Calls and blocks are all-harness** (they carry no harness column); turns/subagents/retries can be scoped with `--harness`.
+
+`audit` exits 0 for a report and 1 only for invalid arguments. It never calls the network.
 
 ## Configuration
 
@@ -367,6 +404,14 @@ reservePercent = 10     # headroom the agent is never allowed to eat
 subagentWeight = 5      # ~requests each dispatched subagent costs
 precise = false         # poll the official Kimi usage API for exact windows (needs KIMI_API_KEY, sk-kimi-...)
                         # falls back to event-based estimates on any error — fail-open
+                        # windows are ACCOUNT-wide: all local sessions of the same harness count
+                        # (`agentguard budget --session <id>` scopes a debug snapshot only)
+
+[retention]             # on-disk artifacts (DB traffic is pruned separately, 30d)
+runsDays = 30           # raw run logs (wire.jsonl/stream.jsonl — full model output)
+checkpointsDays = 30
+incidentsDays = 90
+                        # 0 disables a category; `agentguard clean` runs it on demand
 ```
 
 ## How it works
@@ -482,12 +527,12 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 
 **What we deliberately do NOT do** (so you know where to look):
 
-- Security scanning / destructive-command guards → use **kimi-boost** presets (different axis: authorization vs behavior). `kguard doctor` detects whether a security layer is present and points you there if not.
+- Security scanning / destructive-command guards → use **kimi-boost** presets (different axis: authorization vs behavior). agent-guard does not require it; `agentguard doctor` reports kimi-boost when present and stays silent when absent. The two are independent and can be installed in any order.
 - Completion verification exists in agent-guard as a **deterministic claim-vs-evidence gate** (no LLM in the loop), with an *opt-in* single-vote LLM veto for false positives (`VETO: yes|no` protocol, per-session budget cap, fail-closed on any error). For richer semantic verification (refute-by-default judges, LLM grading), see kimi-session-orchestrator's `grade_step` or the refute-by-default pattern in multi-runtime governance suites.
 - Multi-runtime portability: ✅ shipped for Claude Code (v0.8) and Codex CLI (v0.9) — see the harness matrix. Next adapters (Gemini etc.) reuse the pure-function analyzer core ([PORTING.md](docs/PORTING.md))
 - Daemon-style process supervision (SIGSTOP/SIGCONT, systemd) → **cli-agent-runner** owns that layer; ours is semantic in-harness intervention
 
-Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
+Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) are independent tools by the same author: boost covers the authorization axis at install time, guard the behavior axis at runtime. Each works standalone; see [docs/relationship.md](docs/relationship.md).
 
 ### The cross-ecosystem landscape (verified 2026-09, refreshed 09-28)
 

@@ -1,16 +1,16 @@
-import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import type { DatabaseSync } from "node:sqlite";
 import { stateDbPath } from "./paths.js";
+import { ensurePrivateDir, hardenPath } from "./fsSecure.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
-function sqliteCtor(): typeof DatabaseSync {
+export function sqliteCtor(): typeof DatabaseSync {
   return (nodeRequire("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 }
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS calls (
@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS events (
   session_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   meta_json TEXT NOT NULL,
-  ts INTEGER NOT NULL
+  ts INTEGER NOT NULL,
+  harness TEXT NOT NULL DEFAULT 'kimi'
 );
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(session_id, kind, ts);
 CREATE INDEX IF NOT EXISTS idx_events_time ON events(ts);
@@ -54,15 +55,22 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
+/** Created after the migration so it can be added to pre-v6 databases too. */
+const EVENTS_HARNESS_INDEX = "CREATE INDEX IF NOT EXISTS idx_events_harness ON events(harness, kind, ts);";
+
 let db: DatabaseSync | null = null;
 
 export function openDb(): DatabaseSync {
   if (db) return db;
   const file = stateDbPath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  ensurePrivateDir(path.dirname(file));
   const d = new (sqliteCtor())(file);
   d.exec("PRAGMA journal_mode = WAL;");
   migrate(d);
+  // OS-level privacy: the DB and its WAL/SHM sidecars hold command history.
+  hardenPath(file, 0o600);
+  hardenPath(`${file}-wal`, 0o600);
+  hardenPath(`${file}-shm`, 0o600);
   db = d;
   return db;
 }
@@ -73,6 +81,7 @@ function migrate(d: DatabaseSync): void {
   const version = row ? Number(row.v) : 0;
   if (version === SCHEMA_VERSION) {
     d.exec(SCHEMA);
+    d.exec(EVENTS_HARNESS_INDEX);
     return;
   }
   if (version >= 2) {
@@ -99,11 +108,19 @@ function migrate(d: DatabaseSync): void {
         /* column already exists */
       }
     }
+    if (version < 6) {
+      try {
+        d.exec("ALTER TABLE events ADD COLUMN harness TEXT NOT NULL DEFAULT 'kimi'");
+      } catch {
+        /* column already exists */
+      }
+    }
   } else {
     // v0/v1: dev-stage schemas, safe to rebuild
     d.exec("DROP TABLE IF EXISTS calls; DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS blocks;");
     d.exec(SCHEMA);
   }
+  d.exec(EVENTS_HARNESS_INDEX);
   d.prepare(
     "INSERT INTO meta (k, v) VALUES ('schema_version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
   ).run(String(SCHEMA_VERSION));
@@ -164,15 +181,21 @@ export function callsSince(sessionId: string, sinceTs: number, limit = 500): Cal
     .all(sessionId, sinceTs, limit) as unknown as CallRow[];
 }
 
-export function recordEvent(sessionId: string, kind: string, meta: Record<string, unknown>, ts = Date.now()): void {
+export function recordEvent(
+  sessionId: string,
+  kind: string,
+  meta: Record<string, unknown>,
+  ts = Date.now(),
+  harness = "kimi",
+): void {
   openDb()
-    .prepare("INSERT INTO events (session_id, kind, meta_json, ts) VALUES (?, ?, ?, ?)")
-    .run(sessionId, kind, JSON.stringify(meta), ts);
+    .prepare("INSERT INTO events (session_id, kind, meta_json, ts, harness) VALUES (?, ?, ?, ?, ?)")
+    .run(sessionId, kind, JSON.stringify(meta), ts, harness);
 }
 
-export function countEvents(sessionId: string, kinds: string[], sinceTs: number): number {
+export function countEvents(sessionId: string, kinds: string[], sinceTs: number, db?: DatabaseSync): number {
   const placeholders = kinds.map(() => "?").join(",");
-  const row = openDb()
+  const row = (db ?? openDb())
     .prepare(
       `SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND kind IN (${placeholders}) AND ts >= ?`,
     )
@@ -180,13 +203,33 @@ export function countEvents(sessionId: string, kinds: string[], sinceTs: number)
   return Number(row?.n ?? 0);
 }
 
-export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: number): number | null {
+/** Account-wide count for one harness (all sessions in this state db). */
+export function countEventsForHarness(harness: string, kinds: string[], sinceTs: number, db?: DatabaseSync, hasHarness = true): number {
   const placeholders = kinds.map(() => "?").join(",");
-  const row = openDb()
+  const sql = hasHarness
+    ? `SELECT COUNT(*) AS n FROM events WHERE harness = ? AND kind IN (${placeholders}) AND ts >= ?`
+    : `SELECT COUNT(*) AS n FROM events WHERE kind IN (${placeholders}) AND ts >= ?`;
+  const row = (db ?? openDb()).prepare(sql).get(...(hasHarness ? [harness, ...kinds, sinceTs] : [...kinds, sinceTs])) as { n: number };
+  return Number(row?.n ?? 0);
+}
+
+export function oldestEventTs(sessionId: string, kinds: string[], sinceTs: number, db?: DatabaseSync): number | null {
+  const placeholders = kinds.map(() => "?").join(",");
+  const row = (db ?? openDb())
     .prepare(
       `SELECT MIN(ts) AS m FROM events WHERE session_id = ? AND kind IN (${placeholders}) AND ts >= ?`,
     )
     .get(sessionId, ...kinds, sinceTs) as { m: number | null };
+  return row?.m ?? null;
+}
+
+/** Oldest matching event for one harness across all sessions (window reset anchor). */
+export function oldestEventTsForHarness(harness: string, kinds: string[], sinceTs: number, db?: DatabaseSync, hasHarness = true): number | null {
+  const placeholders = kinds.map(() => "?").join(",");
+  const sql = hasHarness
+    ? `SELECT MIN(ts) AS m FROM events WHERE harness = ? AND kind IN (${placeholders}) AND ts >= ?`
+    : `SELECT MIN(ts) AS m FROM events WHERE kind IN (${placeholders}) AND ts >= ?`;
+  const row = (db ?? openDb()).prepare(sql).get(...(hasHarness ? [harness, ...kinds, sinceTs] : [...kinds, sinceTs])) as { m: number | null };
   return row?.m ?? null;
 }
 
@@ -322,8 +365,8 @@ export function purgeSession(sessionId: string): void {
   d.prepare("DELETE FROM blocks WHERE session_id = ?").run(sessionId);
 }
 
-export function getMeta(key: string): string | undefined {
-  const row = openDb().prepare("SELECT v FROM meta WHERE k = ?").get(key) as { v: string } | undefined;
+export function getMeta(key: string, db?: DatabaseSync): string | undefined {
+  const row = (db ?? openDb()).prepare("SELECT v FROM meta WHERE k = ?").get(key) as { v: string } | undefined;
   return row?.v;
 }
 

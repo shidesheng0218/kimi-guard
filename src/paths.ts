@@ -5,6 +5,11 @@ import path from "node:path";
 export function guardHome(): string {
   const env = process.env.AGENT_GUARD_HOME ?? process.env.KIMI_GUARD_HOME;
   if (env && env.trim()) return path.resolve(env);
+  // Test isolation guard: a test that forgets to point the guard at a temp dir
+  // must fail loudly instead of migrating the developer's real ~/.agent-guard.
+  if (process.env.VITEST) {
+    throw new Error("agent-guard test isolation: set AGENT_GUARD_HOME or KIMI_GUARD_HOME to a temp dir");
+  }
   const fresh = path.join(os.homedir(), ".agent-guard");
   const legacy = path.join(os.homedir(), ".kimi-guard");
   // legacy installs keep working in place until the user moves the directory

@@ -22,6 +22,16 @@
 
 ---
 
+## 该装哪一个？
+
+agent-guard 在 agent **运行时**监督——循环、配额、假完成、断点恢复。它不安装 skills、预设或静态命令规则。这些请用 **[kimi-boost](https://github.com/shidesheng0218/kimi-boost)**。两者相互独立：可以只装一个，也可以任意顺序都装；各自只写自己的托管区块。共存契约见 [docs/relationship.md](docs/relationship.md)。
+
+| 你想要 | 装这个 |
+|---|---|
+| 技术栈规范、skills/agents/commands、静态护栏、配置更新 | kimi-boost |
+| 阻止 agent 死循环、烧配额、假完成，或跑无人值守 CI | agent-guard |
+| 两者都要 | 任意顺序安装；两者只写各自的托管区块 |
+
 ## 为什么需要
 
 Kimi Code CLI 是优秀的开源编码 Agent，但它的子代理系统存在已知可靠性缺口（见上游 issue [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142)、[#2368](https://github.com/MoonshotAI/kimi-cli/issues/2368)、[#2578](https://github.com/MoonshotAI/kimi-cli/issues/2578)）：
@@ -106,11 +116,13 @@ kguard checkpoint       # 立即捕获一次研究状态快照
 kguard resume           # 输出可直接粘贴的恢复上下文块
 kguard run -- <任务描述>  # Wire 模式下的受监督无人值守运行（见下）
 kguard doctor           # 验证 node / 状态库 / 配置 / PATH / 探针
+agentguard clean [--dry-run]  # 清理过期运行日志/快照/事故报告并收紧权限
 kguard probe on|off|show [-n N]   # 抓取原始 hook payload
 kguard config init|show|get <key> # 管理 ~/.kimi-guard/config.toml
 agentguard watch        # 实时 TUI：跨 harness 会话、拦截流、配额水位
 agentguard replay [run] # 已录制运行的时间轴回放（拦截高亮）
 agentguard bench        # 公开基准：病理场景 × 守卫打分
+agentguard audit        # 本地配额取证：燃烧时间线、归因、重试、运行 token
 ```
 
 ### `kguard run` — 受监督的无人值守运行
@@ -203,6 +215,23 @@ Webhook 通道给没有桌面的 headless 环境用。每个事件一次 POST，
 
 `profile = "balanced" | "strict" | "chill"`（配置文件 / `--profile` / `AGENT_GUARD_PROFILE`)。balanced 是出厂默认；strict 提前介入（无人值守）;chill 最大放手。你的显式配置永远最高优先。`agentguard calibrate` 从误报反馈给出逐检测器调整建议（只打印 TOML，不改配置）,`calibrate --apply` 一键采纳豁免项（先备份）。
 
+## 配额审计——配额到底花在哪了？
+
+`agentguard audit` **只读**本地状态库，解释一个时间窗内的消耗：15 分钟燃烧时间线、会话/agent/工具归因、重试信号、受监督运行的 token 明细，以及确定性 findings。
+
+```sh
+agentguard audit                          # 最近 24h，文本
+agentguard audit --since 7d --md          # 可转发的 Markdown
+agentguard audit --session <id> --json     # 单会话（含子 agent）
+```
+
+- **构造上只读**：不建库、不迁移、不写入。守卫从未使用时输出零报告并提示 `guard-inactive`，而不是创建一个空文件。
+- **观测 / 估算 / 推断分开**：调用、turn、subagent 派发、拦截、重试、会话/agent 归因是观测；请求燃烧与 5h 投影是估算；subagent 加权占比与 cache 放大解释是推断。每份报告都打印这三组。
+- **token 明细需要受监督运行**：hooks-only 模式只能看到工具调用与输出，看不到逐轮 cache token。cache read/creation 与 `cache-amplification` 来自 `agentguard run` 的报告，报告会明确说明。
+- **calls/blocks 是全 harness**（它们没有 harness 列）；turn/subagent/retry 可用 `--harness` 限定。
+
+`audit` 报告成功退出码为 0，仅参数错误为 1；不联网。
+
 ## 配置
 
 `~/.kimi-guard/config.toml`（`kguard config init` 生成带注释模板，`kguard config show` 查看生效值）：
@@ -274,6 +303,14 @@ reservePercent = 10     # 给你保留的余量，Agent 永远不能吃掉
 subagentWeight = 5      # 每个派发子代理的请求折算
 precise = false         # 轮询官方 Kimi 用量 API 拿精确窗口（需 KIMI_API_KEY，sk-kimi-...）
                         # 任何错误都回退到事件估算——fail-open
+                        # 窗口按账号统计：同一 harness 的所有本地会话都计入
+                        # （`agentguard budget --session <id>` 仅用于调试单个会话）
+
+[retention]             # 磁盘产物保留（状态库流量另按 30 天清理）
+runsDays = 30           # 原始运行日志（wire.jsonl/stream.jsonl，含完整模型输出）
+checkpointsDays = 30
+incidentsDays = 90
+                        # 0 = 关闭该类清理；`agentguard clean` 可手动执行
 ```
 
 ## 工作原理
@@ -387,12 +424,12 @@ Agent 运行时工具这个赛道已经相当拥挤，假装所有工具都互�
 
 **我们刻意不做的事**（方便你找对工具）：
 
-- 安全扫描 / 破坏性命令拦截 → 用 **kimi-boost** 的预设（不同轴：授权 vs 行为）。`kguard doctor` 会探测安全层是否存在，缺了会指路过去。
+- 安全扫描 / 破坏性命令拦截 → 用 **kimi-boost** 的预设（不同轴：授权 vs 行为）。agent-guard 不依赖它；`agentguard doctor` 检测到 kimi-boost 时会报告，未安装时保持沉默。两者相互独立，可任意顺序安装。
 - 完工验证：agent-guard 已内置**确定性的"声明 vs 证据"闸门**（无 LLM 参与），外加**可选的一次性 LLM 否决票**抑制误报（`VETO: yes|no` 投票协议、单会话额度上限、任何错误一律维持阻断）。要更重的语义验证（refute-by-default 评审、LLM 评分），看 kimi-session-orchestrator 的 `grade_step` 或多 runtime 治理套件的 refute-by-default 模式。
 - 跨 runtime 可移植：✅ 已交付 Claude Code（v0.8）与 Codex CLI（v0.9)——见上方 harness 矩阵。更多适配器（Gemini 等）复用纯函数分析器核心（[PORTING.md](docs/PORTING.md)）
 - 进程级监督（SIGSTOP/SIGCONT、systemd）→ **cli-agent-runner** 占据那一层；我们做的是 harness 内的语义干预
 
-值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。agent-guard 与 [kimi-boost](https://github.com/shidesheng0218/kimi-boost) 出自同一作者，按产品线设计成一对：boost 管授权轴，guard 管行为轴。
+值得知道的 Kimi 生态项目：[kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator)（多 session 编排）、[oh-my-kimi](https://github.com/xz1220/oh-my-kimi)（skill/hook 预设）、[cli-agent-runner](https://github.com/wan9yu/cli-agent-runner)（生命周期监督，带 kimi 预设）、[kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage)（只读用量报表）。agent-guard 与 [kimi-boost](https://github.com/shidesheng0218/kimi-boost) 出自同一作者，但相互独立：boost 在安装时管授权轴，guard 在运行时管行为轴；各自都能单独工作，共存契约见 [docs/relationship.md](docs/relationship.md)。
 
 ### 跨生态竞品格局（2026-09 核实，09-28 刷新）
 

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { callsSince, knownSessions, recordEvent } from "./store.js";
 import { guardHome } from "./paths.js";
+import { ensurePrivateDir, writePrivateFile } from "./fsSecure.js";
 import { loadConfig, type GuardConfig } from "./config.js";
 import { editTools, readTools, searchTools, shellTools } from "./toolsets.js";
 
@@ -105,7 +106,7 @@ export function captureCheckpoint(sessionId: string, reason: string, now = Date.
   const brief = buildBrief(sessionId, now, 6 * 3_600_000, cfg);
   if (!brief) return null;
   const dir = path.join(guardHome(), "checkpoints", sessionId.replace(/[^\w.-]/g, "_"));
-  fs.mkdirSync(dir, { recursive: true });
+  ensurePrivateDir(dir);
   const file = path.join(dir, `${now}-${reason.replace(/[^\w-]/g, "_")}.md`);
   const header = [
     `# agent-guard checkpoint`,
@@ -115,8 +116,8 @@ export function captureCheckpoint(sessionId: string, reason: string, now = Date.
     `- reason: ${reason}`,
     ``,
   ].join("\n");
-  fs.writeFileSync(file, header + brief + "\n", "utf8");
-  recordEvent(sessionId, "checkpoint", { reason, file }, now);
+  writePrivateFile(file, header + brief + "\n");
+  recordEvent(sessionId, "checkpoint", { reason, file }, now, cfg.harness);
   return { sessionId, path: file, brief, reason, ts: now };
 }
 

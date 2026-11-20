@@ -30,17 +30,31 @@ describe("budget metering", () => {
     const now = Date.now();
     for (let i = 0; i < 30; i++) recordEvent("s1", "turn", {}, now - i * 60_000);
     recordEvent("s1", "subagent", {}, now - 120_000);
-    const snap = budgetSnapshot("s1", budgetCfg(), now);
+    const snap = budgetSnapshot(budgetCfg(), "kimi", now);
     expect(snap.turnsLastHour).toBe(30);
     // 30 turns within 5h window + 1 subagent × weight 5
     expect(snap.fiveHour.used).toBe(35);
     expect(snap.weekly.used).toBe(35);
   });
 
+  it("counts every session of the harness (account window), not other harnesses", () => {
+    const now = Date.now();
+    recordEvent("a", "turn", {}, now - 1_000);
+    recordEvent("b", "turn", {}, now - 2_000);
+    recordEvent("c", "turn", {}, now - 3_000, "claude");
+    const snap = budgetSnapshot(budgetCfg(), "kimi", now);
+    expect(snap.scope).toBe("harness");
+    expect(snap.fiveHour.used).toBe(2); // a + b, not the claude event
+    // --session remains available as an explicit debug scope
+    const scoped = budgetSnapshot(budgetCfg(), "kimi", now, "a");
+    expect(scoped.scope).toBe("session");
+    expect(scoped.fiveHour.used).toBe(1);
+  });
+
   it("old events outside the window do not count", () => {
     const now = Date.now();
     for (let i = 0; i < 10; i++) recordEvent("s1", "turn", {}, now - 6 * 3_600_000);
-    const snap = budgetSnapshot("s1", budgetCfg(), now);
+    const snap = budgetSnapshot(budgetCfg(), "kimi", now);
     expect(snap.fiveHour.used).toBe(0);
   });
 
@@ -48,7 +62,7 @@ describe("budget metering", () => {
     const now = Date.now();
     // 2 hours ago: inside the 5h window, outside the burn-rate hour
     recordEvent("s1", "subagent", {}, now - 2 * 3_600_000);
-    const snap = budgetSnapshot("s1", budgetCfg(), now);
+    const snap = budgetSnapshot(budgetCfg(), "kimi", now);
     expect(snap.fiveHour.used).toBe(5); // 1 subagent × weight 5
     expect(snap.subagentsLastHour).toBe(0);
   });
@@ -58,7 +72,7 @@ describe("budget metering", () => {
     for (let i = 0; i < 190; i++) recordEvent("s1", "turn", {}, now - i * 30_000);
     const cfgB = budgetCfg();
     cfgB.reservePercent = 10;
-    const finding = evaluateBudgetGate("s1", cfgB, now);
+    const finding = evaluateBudgetGate(cfgB, "kimi", now);
     expect(finding?.severity).toBe("block");
     expect(finding?.message).toContain("Quota gate");
   });
@@ -66,13 +80,13 @@ describe("budget metering", () => {
   it("warns at high burn rate projection", () => {
     const now = Date.now();
     for (let i = 0; i < 150; i++) recordEvent("s1", "turn", {}, now - i * 12_000);
-    const finding = evaluateBudgetGate("s1", budgetCfg(), now);
+    const finding = evaluateBudgetGate(budgetCfg(), "kimi", now);
     expect(finding !== null).toBe(true);
   });
 
   it("disabled budget → no findings", () => {
     const cfgB = { ...budgetCfg(), enabled: false };
-    expect(evaluateBudgetGate("s1", cfgB)).toBeNull();
+    expect(evaluateBudgetGate(cfgB, "kimi")).toBeNull();
   });
 
   it("custom limits override plan presets", () => {
@@ -82,7 +96,7 @@ describe("budget metering", () => {
   });
 
   it("formatSnapshot renders bars", () => {
-    const snap = budgetSnapshot("s1", budgetCfg());
+    const snap = budgetSnapshot(budgetCfg(), "kimi");
     const text = formatSnapshot(snap);
     expect(text).toContain("5h:");
     expect(text).toContain("weekly:");
@@ -91,14 +105,14 @@ describe("budget metering", () => {
   it("rolling window reset anchors to the oldest event in the window", () => {
     const now = Date.now();
     recordEvent("roll", "turn", {}, now - 3_600_000); // 1h ago
-    const snap = budgetSnapshot("roll", budgetCfg(), now);
+    const snap = budgetSnapshot(budgetCfg(), "kimi", now);
     // 5h window started 1h ago → ~4h left, not the epoch-aligned modulo value
     expect(snap.fiveHour.resetsInMs).toBeGreaterThan(3.9 * 3_600_000);
     expect(snap.fiveHour.resetsInMs).toBeLessThanOrEqual(4 * 3_600_000);
   });
 
   it("an untouched window shows a full span ahead", () => {
-    const snap = budgetSnapshot("fresh", budgetCfg());
+    const snap = budgetSnapshot(budgetCfg(), "kimi");
     expect(snap.fiveHour.resetsInMs).toBe(5 * 3_600_000);
   });
 });

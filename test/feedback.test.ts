@@ -64,7 +64,7 @@ describe("block feedback loop", () => {
 
     // opening through the store must migrate without losing the row
     openDb();
-    expect(getMeta("schema_version")).toBe("5");
+    expect(getMeta("schema_version")).toBe("6");
     const rows = listBlocks();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.session_id).toBe("old");
@@ -89,7 +89,7 @@ describe("block feedback loop", () => {
     d.close();
 
     openDb();
-    expect(getMeta("schema_version")).toBe("5");
+    expect(getMeta("schema_version")).toBe("6");
     recordCall({ sessionId: "s1", toolName: "Grep", argsHash: "h2", argsJson: "{}", outputHash: "o", outputSample: "sample text", filePath: null, status: "ok" });
     const { callsSince } = await import("../src/store.js");
     const rows = callsSince("s1", 0);

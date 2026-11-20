@@ -19,11 +19,13 @@ import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js
 import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
 import { buildCalibrateReport, formatCalibrateReport, applyCalibrate } from "./calibrate.js";
+import { buildAudit, formatAudit, auditToMarkdown } from "./audit.js";
 import { menubarText, installMenubar } from "./menubar.js";
 import { notify } from "./notify.js";
 import { buildDigest, formatDigest, formatDigestMarkdown } from "./digest.js";
 import { runCanary } from "./canary.js";
 import { writeIncident, latestRunId } from "./incident.js";
+import { hardenArtifacts, pruneArtifacts } from "./retention.js";
 
 const program = new Command();
 
@@ -135,17 +137,35 @@ program
   });
 
 program
+  .command("clean")
+  .description("prune old run logs/checkpoints/incidents and tighten their file permissions")
+  .option("--dry-run", "show what would be removed without deleting")
+  .action((opts: { dryRun?: boolean }) => {
+    const cfg = loadConfig();
+    if (!opts.dryRun) {
+      const hardened = hardenArtifacts();
+      console.log(`✓ tightened permissions on ${hardened} path(s)`);
+    }
+    const r = pruneArtifacts(Date.now(), cfg.retention, { dryRun: Boolean(opts.dryRun) });
+    const verb = opts.dryRun ? "would remove" : "removed";
+    const mb = (r.bytes / 1_048_576).toFixed(1);
+    console.log(`${verb}: ${r.runs} run(s), ${r.checkpoints} checkpoint(s), ${r.incidents} incident(s) (${mb} MB)`);
+    console.log(
+      `  retention: runs ${cfg.retention.runsDays}d · checkpoints ${cfg.retention.checkpointsDays}d · incidents ${cfg.retention.incidentsDays}d`,
+    );
+  });
+
+program
   .command("budget")
   .description("show the quota metering snapshot (windows, burn rate, projection)")
-  .option("-s, --session <id>", "session id (defaults to the most recent)")
+  .option("-s, --session <id>", "debug: scope the snapshot to one session (default: all sessions of this harness)")
   .action(async (opts: { session?: string }) => {
     const cfg = loadConfig();
     if (cfg.budget.precise) {
       const p = await refreshPreciseUsage(cfg.budget);
       if (!p) console.error("[agent-guard] precise metering unavailable (missing KIMI_API_KEY or API error) — showing event-based estimates");
     }
-    const sid = opts.session ?? latestSessionId() ?? "unknown";
-    console.log(formatSnapshot(budgetSnapshot(sid, cfg.budget)));
+    console.log(formatSnapshot(budgetSnapshot(cfg.budget, cfg.harness, Date.now(), opts.session)));
     const limits = resolveLimits(cfg.budget);
     if (limits.weekly === 0) {
       console.log(`\navailable plans: ${Object.keys(PLANS).join(", ")} — or set weekly/fiveHour in config`);
@@ -155,7 +175,7 @@ program
 program
   .command("checkpoint")
   .description("capture a research-state checkpoint for a session (also auto-captured on failures/interrupts)")
-  .option("-s, --session <id>", "session id (defaults to the most recent)")
+  .option("-s, --session <id>", "debug: scope the snapshot to one session (default: all sessions of this harness)")
   .option("-r, --reason <text>", "why the checkpoint is being taken", "manual")
   .action((opts: { session?: string; reason: string }) => {
     const sid = opts.session ?? latestSessionId();
@@ -277,6 +297,33 @@ program
     }
     console.log(`  budget: ${report.budget.plan}${report.budget.precise ? " (precise)" : ""}  5h=${report.budget.fiveHourPercent}%  weekly=${report.budget.weeklyPercent}%`);
     console.log("  (aggregate only — no arguments, paths or commands are included)");
+  });
+
+const SINCE_WINDOWS: Record<string, number> = {
+  "24h": 86_400_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+};
+
+program
+  .command("audit")
+  .description("local quota forensics: burn timeline, session/agent attribution, retries, supervised-run tokens")
+  .option("--session <id>", "scope to one session (includes its subagents)")
+  .option("--since <window>", "24h | 7d | 30d (default 24h)", "24h")
+  .option("--harness <name>", "event scope harness (default: configured harness)")
+  .option("--json", "print machine-readable JSON")
+  .option("--md", "print Markdown")
+  .action((opts: { session?: string; since?: string; harness?: string; json?: boolean; md?: boolean }) => {
+    const windowMs = SINCE_WINDOWS[opts.since ?? "24h"];
+    if (!windowMs) {
+      console.error(`invalid --since '${opts.since}' (use 24h, 7d, 30d)`);
+      process.exitCode = 1;
+      return;
+    }
+    const report = buildAudit({ session: opts.session, sinceMs: windowMs, harness: opts.harness });
+    if (opts.json) console.log(JSON.stringify(report, null, 2));
+    else if (opts.md) process.stdout.write(auditToMarkdown(report));
+    else console.log(formatAudit(report));
   });
 
 program
@@ -534,7 +581,7 @@ program
       });
       if (opts.json) console.log(JSON.stringify(report, null, 2));
       else console.log(formatReport(report));
-      process.exitCode = report.endReason === "finished" ? 0 : 2;
+      process.exitCode = report.endReason === "finished" && report.blocks.length === 0 ? 0 : 2;
       return;
     }
     if (opts.harness === "claude") {
@@ -552,7 +599,7 @@ program
       });
       if (opts.json) console.log(JSON.stringify(report, null, 2));
       else console.log(formatReport(report));
-      process.exitCode = report.endReason === "finished" ? 0 : 2;
+      process.exitCode = report.endReason === "finished" && report.blocks.length === 0 ? 0 : 2;
       return;
     }
     const report = await runSupervised({
@@ -570,7 +617,7 @@ program
     });
     if (opts.json) console.log(JSON.stringify(report, null, 2));
     else console.log(formatReport(report));
-    process.exitCode = report.endReason === "finished" ? 0 : 2;
+    process.exitCode = report.endReason === "finished" && report.blocks.length === 0 ? 0 : 2;
   });
 
 program.parseAsync(process.argv).catch((err: Error) => {

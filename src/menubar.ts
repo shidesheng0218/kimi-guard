@@ -4,7 +4,6 @@ import path from "node:path";
 import { loadConfig } from "./config.js";
 import { budgetSnapshot } from "./meter.js";
 import { buildStatus, listBlocks } from "./store.js";
-import { latestSessionId } from "./checkpoint.js";
 
 /**
  * Menu bar integration via the xbar/SwiftBar plugin protocol: a script that
@@ -15,8 +14,7 @@ import { latestSessionId } from "./checkpoint.js";
 export function menubarText(now = Date.now()): string {
   const cfg = loadConfig();
   const s = buildStatus();
-  const sid = latestSessionId() ?? "unknown";
-  const snap = budgetSnapshot(sid, cfg.budget, now);
+  const snap = budgetSnapshot(cfg.budget, cfg.harness, now);
   const blocks = listBlocks(1);
   const last = blocks[0];
 

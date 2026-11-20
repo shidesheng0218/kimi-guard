@@ -1,0 +1,7 @@
+# >>> kimi-boost managed >>>
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = "node \"C:\\Users\\x\\.kimi-boost\\hooks\\core\\protect-main.mjs\""
+timeout = 5
+# <<< kimi-boost managed <<<
