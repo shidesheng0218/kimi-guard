@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Boundary with kimi-boost, and coexistence detection
+
+- New [`docs/relationship.md`](docs/relationship.md) states the split: agent-guard supervises runtime behavior; [kimi-boost](https://github.com/shidesheng0218/kimi-boost) installs static presets and guardrails at install time. Both work standalone and can be installed in any order.
+- `agentguard doctor` now reports kimi-boost as an informational coexistence line (`detected` or `installed (hooks not detected)`) and stays silent when it is absent. The previous `no security-layer hooks detected — consider kimi-boost` warning is removed: the tools are independent, and not installing one is never an error for the other.
+- `agentguard status` shows an `install-time presets` line for the same detection.
+
 ### Quota audit
 
 - New `agentguard audit [--session <id>] [--since 24h|7d|30d] [--harness name] [--json|--md]`: a read-only local forensic report with a 15-minute burn timeline, session/agent/tool attribution, retry signals, supervised-run token detail, and deterministic findings. It opens the state DB read-only, never creates or migrates it, and labels observed vs estimated vs inferred data.

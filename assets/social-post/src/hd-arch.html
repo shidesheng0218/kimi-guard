@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1440px; }
+  body {
+    font-family:"PingFang SC",-apple-system,sans-serif;
+    color:#3b3733; position:relative; overflow:hidden;
+    background:
+      linear-gradient(rgba(72,105,160,.075) 1.5px, transparent 1.5px),
+      linear-gradient(90deg, rgba(72,105,160,.075) 1.5px, transparent 1.5px),
+      #fbf8ee;
+    background-size:45px 45px;
+  }
+  .hand { font-family:"Marker Felt","Bradley Hand",cursive; }
+  .wrap { position:absolute; inset:0; padding:44px 64px 36px; display:flex; flex-direction:column; }
+  .wrap > * { flex-shrink:0; }
+
+  .title { font-size:52px; font-weight:700; text-align:center; }
+  .title .hl { background:linear-gradient(180deg, transparent 52%, rgba(255,214,64,.85) 52%, rgba(255,214,64,.85) 92%, transparent 92%); padding:0 6px; }
+  .subline { margin-top:8px; font-size:25px; color:#8a8177; text-align:center; font-weight:500; }
+
+  .tape { position:absolute; width:130px; height:36px; background:rgba(248,214,124,.6);
+          box-shadow:0 1px 3px rgba(0,0,0,.08); }
+
+  /* Box A — CLI */
+  .cli { position:relative; margin:20px auto 0; background:#fff; border:2.5px solid #3b3733;
+         border-radius:255px 15px 225px 15px/15px 225px 15px 255px;
+         padding:16px 46px; transform:rotate(-.8deg); text-align:center;
+         box-shadow:2px 3px 0 rgba(59,55,51,.10); width:640px; }
+  .cli .name { font-size:38px; font-weight:700; }
+  .cli .name .hand { font-size:40px; }
+  .cli .desc { font-size:23px; color:#8a8177; margin-top:4px; font-weight:500; }
+  .cli .tag { position:absolute; top:-24px; right:-88px; background:#fff; border:2px solid #3b3733;
+              border-radius:50% 45% 55% 50%/55% 50% 45% 55%; padding:8px 18px; font-size:22px;
+              font-weight:600; transform:rotate(6deg); }
+  .cli .tape { top:-18px; left:40px; transform:rotate(-4deg); }
+
+  /* arrows */
+  .arr { display:block; margin:0 auto; flex:none; }
+
+  /* main layout row: pipeline + side notes */
+  .mid { display:flex; gap:22px; margin-top:2px; align-items:stretch; }
+  .pipe { flex:1; position:relative; background:#fff; border:3px solid #3b3733;
+          border-radius:225px 18px 255px 18px/18px 255px 18px 225px;
+          padding:18px 30px 20px; transform:rotate(.4deg);
+          box-shadow:2px 3px 0 rgba(59,55,51,.10); }
+  .pipe .head { text-align:center; font-size:31px; font-weight:700; }
+  .pipe .head .hand { font-size:33px; }
+  .pipe .head small { display:block; font-size:21px; color:#8a8177; font-weight:500; margin-top:2px; }
+
+  .step { display:flex; align-items:flex-start; gap:16px; margin-top:12px; background:#fdfcf7;
+          border:2px solid #9a917f; border-radius:15px 225px 15px 255px/225px 15px 255px 15px;
+          padding:10px 20px; }
+  .num { flex:none; width:46px; height:46px; display:flex; align-items:center; justify-content:center;
+         font-size:26px; font-weight:700; color:#3d6fb4; border:2.5px solid #3d6fb4;
+         border-radius:55% 45% 50% 60%/50% 60% 45% 55%; background:#fff; }
+  .step .st { font-size:26px; font-weight:700; line-height:1.25; }
+  .step .sd { font-size:22px; color:#6b645c; line-height:1.35; margin-top:2px; font-weight:500; }
+  .mini { display:flex; justify-content:center; margin-top:8px; }
+
+  /* side notes */
+  .side { width:300px; flex:none; display:flex; flex-direction:column; gap:22px; justify-content:center; }
+  .snote { position:relative; background:#fff; border:2.5px dashed #8d94b8; border-radius:16px;
+           padding:18px 20px; }
+  .snote.s1 { transform:rotate(-1.6deg); }
+  .snote.s2 { transform:rotate(1.4deg); border-color:#8fbf9f; }
+  .snote .st { font-size:24px; font-weight:700; }
+  .snote .sd { font-size:21px; color:#6b645c; line-height:1.4; margin-top:4px; font-weight:500; }
+  .snote .tape { width:90px; height:26px; top:-14px; left:50%; margin-left:-45px; }
+
+  /* outcomes */
+  .outs { display:flex; gap:20px; margin-top:4px; }
+  .out { flex:1; background:#fff; padding:14px 18px 12px; text-align:center;
+         box-shadow:2px 2px 0 rgba(59,55,51,.10); }
+  .out .e { font-size:40px; line-height:1; }
+  .out .t { font-size:27px; font-weight:800; margin-top:8px; }
+  .out .d { font-size:20px; color:#6b645c; line-height:1.4; margin-top:6px; font-weight:500; }
+  .o1 { border:2.5px dashed #2c6e49; border-radius:255px 15px 225px 15px/15px 225px 15px 255px; transform:rotate(-1deg); }
+  .o1 .t { color:#2c6e49; }
+  .o2 { border:2.5px solid #c0392b; border-radius:15px 255px 15px 225px/225px 15px 255px 15px; transform:rotate(.8deg); }
+  .o2 .t { color:#c0392b; }
+  .o3 { border:4px solid #c0392b; background:rgba(192,57,43,.06);
+        border-radius:225px 18px 255px 18px/18px 255px 18px 225px; transform:rotate(-.6deg); }
+  .o3 .t { color:#c0392b; }
+  .sev { text-align:center; font-size:22px; color:#c0392b; font-weight:700; margin-top:10px; }
+
+  /* bottom note */
+  .bnote { margin-top:12px; background:#fff; border:2px dashed #b3a68f; border-radius:18px;
+           padding:14px 26px; display:flex; flex-direction:column; gap:6px; transform:rotate(-.4deg); }
+  .bnote .l { font-size:23px; font-weight:600; color:#6b6052; line-height:1.45; }
+  .bnote .l b { color:#2c6e49; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="title"><span class="hand">kimi-guard</span> 是怎么<span class="hl">工作的</span>？</div>
+  <div class="subline">本地跑、零后台进程，挂在官方 hooks 系统上</div>
+
+  <div class="cli">
+    <div class="tape"></div>
+    <div class="tag">干活的</div>
+    <div class="name"><span class="hand">Kimi Code CLI</span></div>
+    <div class="desc">主 agent + 一群并行子代理，共用一个 API key</div>
+  </div>
+
+  <svg class="arr" width="936" height="86" viewBox="0 0 936 86">
+    <path d="M468 6 C464 26 472 46 467 68" fill="none" stroke="#3d6fb4" stroke-width="4" stroke-linecap="round"/>
+    <path d="M456 58 L467 74 L480 58" fill="none" stroke="#3d6fb4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="496" y="44" font-size="24" font-weight="600" fill="#3d6fb4">每一次工具调用</text>
+  </svg>
+
+  <div class="mid">
+    <div class="pipe">
+      <div class="head"><span class="hand">kimi-guard</span> 守卫流水线
+        <small>每一次调用都要过这三关</small>
+      </div>
+      <div class="step">
+        <div class="num">1</div>
+        <div><div class="st">规范化</div><div class="sd">调用变成统一"指纹"，标点 / 空格 / 顺序差异也算同一个</div></div>
+      </div>
+      <div class="mini"><svg width="20" height="34" viewBox="0 0 20 34"><path d="M10 3 C8 12 12 20 9 29" stroke="#8a8177" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M3 24 L9 32 L16 24" stroke="#8a8177" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="step">
+        <div class="num">2</div>
+        <div><div class="st">分析器 ×13</div><div class="sd">重复 · 循环 · 零增益 · 改稿不停 · 无进展 · 模糊重复…</div></div>
+      </div>
+      <div class="mini"><svg width="20" height="34" viewBox="0 0 20 34"><path d="M10 3 C8 12 12 20 9 29" stroke="#8a8177" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M3 24 L9 32 L16 24" stroke="#8a8177" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="step">
+        <div class="num">3</div>
+        <div><div class="st">策略引擎</div><div class="sd">观察 → 警告 → 拦截 → 熔断，逐级升级</div></div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="snote s1">
+        <div class="tape"></div>
+        <div class="st">🚦 配额闸门</div>
+        <div class="sd">按 5 小时 / 每周窗口记账，快烧完提前拦，不算到崩才停</div>
+      </div>
+      <div class="snote s2">
+        <div class="tape"></div>
+        <div class="st">💾 自动存档</div>
+        <div class="sd">中断 / 失败自动存状态，下次 kguard resume 直接续跑</div>
+      </div>
+    </div>
+  </div>
+
+  <svg class="arr" width="936" height="96" viewBox="0 0 936 96">
+    <path d="M330 6 C320 34 180 40 156 74" fill="none" stroke="#2c6e49" stroke-width="3.5" stroke-dasharray="10 8" stroke-linecap="round"/>
+    <path d="M146 62 L154 78 L170 70" fill="none" stroke="#2c6e49" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M468 6 C466 30 468 48 468 72" fill="none" stroke="#c0392b" stroke-width="4" stroke-linecap="round"/>
+    <path d="M457 62 L468 78 L480 62" fill="none" stroke="#c0392b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M606 6 C616 34 756 40 780 74" fill="none" stroke="#c0392b" stroke-width="6" stroke-linecap="round"/>
+    <path d="M766 66 L784 80 L788 58" fill="none" stroke="#c0392b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+
+  <div class="outs">
+    <div class="out o1">
+      <div class="e">⚠️</div>
+      <div class="t">警告</div>
+      <div class="d">写回上下文<br>AI 自己纠正</div>
+    </div>
+    <div class="out o2">
+      <div class="e">⛔</div>
+      <div class="t">拦截</div>
+      <div class="d">这个调用<br>不许跑</div>
+    </div>
+    <div class="out o3">
+      <div class="e">🛑</div>
+      <div class="t">熔断</div>
+      <div class="d">全部停下<br>写总结收尾</div>
+    </div>
+  </div>
+  <div class="sev">⟵ 越往右，出手越重 ⟶</div>
+
+  <div class="sp" style="flex:1"></div>
+
+  <div class="bnote">
+    <div class="l">🧷 <b>fail-open</b>：guard 自己出错了？AI 照常干活 —— 它是安全网，不当绊脚石</div>
+    <div class="l">🔌 两种接入：hooks 模式（装完即用）· Wire 模式（<span class="hand">kguard run</span> 进程内监督，CI 友好）</div>
+  </div>
+</div>
+</body>
+</html>

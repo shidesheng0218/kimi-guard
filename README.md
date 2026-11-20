@@ -26,6 +26,16 @@
 
 ---
 
+## Which one do I need?
+
+agent-guard supervises the agent **while it runs** — loops, quota, false completion, checkpoints. It does not install skills, presets or static command rules. For those, use **[kimi-boost](https://github.com/shidesheng0218/kimi-boost)**. The two are independent tools: install either alone, or both in any order. They write only their own managed blocks — see [docs/relationship.md](docs/relationship.md) for the coexistence contract.
+
+| What you want | Install |
+|---|---|
+| Stack conventions, skills/agents/commands, static guardrails, config updates | kimi-boost |
+| Stop runaway loops, quota burn, false completion, or run unattended CI | agent-guard |
+| Both | Install in any order; each writes only its own managed block |
+
 ## Why
 
 Kimi Code CLI is a great open-source coding agent, but its subagent system has known reliability gaps (see issues [#2142](https://github.com/MoonshotAI/kimi-cli/issues/2142), [#2368](https://github.com/MoonshotAI/kimi-cli/issues/2368), [#2578](https://github.com/MoonshotAI/kimi-cli/issues/2578)):
@@ -517,12 +527,12 @@ The agent-runtime tooling space is crowded, and pretending every tool competes w
 
 **What we deliberately do NOT do** (so you know where to look):
 
-- Security scanning / destructive-command guards → use **kimi-boost** presets (different axis: authorization vs behavior). `kguard doctor` detects whether a security layer is present and points you there if not.
+- Security scanning / destructive-command guards → use **kimi-boost** presets (different axis: authorization vs behavior). agent-guard does not require it; `agentguard doctor` reports kimi-boost when present and stays silent when absent. The two are independent and can be installed in any order.
 - Completion verification exists in agent-guard as a **deterministic claim-vs-evidence gate** (no LLM in the loop), with an *opt-in* single-vote LLM veto for false positives (`VETO: yes|no` protocol, per-session budget cap, fail-closed on any error). For richer semantic verification (refute-by-default judges, LLM grading), see kimi-session-orchestrator's `grade_step` or the refute-by-default pattern in multi-runtime governance suites.
 - Multi-runtime portability: ✅ shipped for Claude Code (v0.8) and Codex CLI (v0.9) — see the harness matrix. Next adapters (Gemini etc.) reuse the pure-function analyzer core ([PORTING.md](docs/PORTING.md))
 - Daemon-style process supervision (SIGSTOP/SIGCONT, systemd) → **cli-agent-runner** owns that layer; ours is semantic in-harness intervention
 
-Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) come from the same author and are designed as a pair: boost covers the authorization axis, guard the behavior axis.
+Related Kimi-ecosystem projects worth knowing: [kimi-session-orchestrator](https://github.com/FirenzeClaw/kimi-session-orchestrator) (multi-session orchestration), [oh-my-kimi](https://github.com/xz1220/oh-my-kimi) (skill/hook presets), [cli-agent-runner](https://github.com/wan9yu/cli-agent-runner) (lifecycle supervision with a kimi preset), [kimi-code-usage](https://github.com/Golden0Voyager/kimi-code-usage) (read-only usage reporting). agent-guard and [kimi-boost](https://github.com/shidesheng0218/kimi-boost) are independent tools by the same author: boost covers the authorization axis at install time, guard the behavior axis at runtime. Each works standalone; see [docs/relationship.md](docs/relationship.md).
 
 ### The cross-ecosystem landscape (verified 2026-09, refreshed 09-28)
 
