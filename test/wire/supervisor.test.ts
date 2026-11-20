@@ -73,6 +73,15 @@ describe("supervised run (integration with fake Wire server)", () => {
     expect(fs.existsSync(r.logPath)).toBe(true);
   }, 20000);
 
+  it("writes harness, sessionId and startedAtMs into report.json", async () => {
+    const r = await run("read the readme", "ok");
+    const report = JSON.parse(fs.readFileSync(r.reportPath, "utf8")) as Record<string, unknown>;
+    expect(report.harness).toBe("kimi");
+    expect(report.sessionId).toBe(r.runId);
+    expect(typeof report.startedAtMs).toBe("number");
+    expect(report.startedAtMs).toBeGreaterThan(0);
+  }, 20000);
+
   it("loop scenario: repeated identical call is blocked via HookRequest and the fake model stops", async () => {
     const r = await run("find foo", "loop");
     expect(r.blocks.length).toBeGreaterThanOrEqual(1);

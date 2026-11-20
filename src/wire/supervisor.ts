@@ -51,6 +51,12 @@ export interface SteerRecord {
 
 export interface RunReport {
   runId: string;
+  /** Harness this run supervised (kimi | claude | codex). */
+  harness: string;
+  /** Upstream session/thread id when known; audit uses it to link token evidence. */
+  sessionId?: string;
+  /** Epoch ms when the run started; audit filters runs by this. */
+  startedAtMs: number;
   command: string[];
   startedAt: string;
   finishedAt: string;
@@ -99,6 +105,9 @@ export async function runSupervised(opts: RunOptions): Promise<RunReport> {
   const startedAt = Date.now();
   const report: RunReport = {
     runId,
+    harness: cfg.harness,
+    sessionId: runId,
+    startedAtMs: startedAt,
     command: opts.command ?? ["kimi", "--wire"],
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: "",

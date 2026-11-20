@@ -52,6 +52,15 @@ describe("codex headless supervision", () => {
     expect(countEvents("fake-codex-thread", ["turn"], 0)).toBe(1);
   }, 20000);
 
+  it("writes harness, sessionId and startedAtMs into report.json", async () => {
+    const r = await run("list files", "ok");
+    const report = JSON.parse(fs.readFileSync(r.reportPath, "utf8")) as Record<string, unknown>;
+    expect(report.harness).toBe("codex");
+    expect(report.sessionId).toBe("fake-codex-thread");
+    expect(typeof report.startedAtMs).toBe("number");
+    expect(report.startedAtMs).toBeGreaterThan(0);
+  }, 20000);
+
   it("hooks live: the driver does not duplicate call rows; hook blocks merge into the report", async () => {
     const hooksPath = path.join(tmp, "hooks.json");
     process.env.CODEX_HOOKS_PATH = hooksPath;

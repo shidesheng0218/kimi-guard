@@ -73,6 +73,8 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
   const startedAt = Date.now();
   const report: RunReport = {
     runId,
+    harness: "claude",
+    startedAtMs: startedAt,
     command: [...(opts.command ?? ["claude"]), "-p", "<prompt>", "--output-format", "stream-json"],
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: "",
@@ -340,6 +342,7 @@ export async function runClaudeSupervised(opts: ClaudeRunOptions): Promise<RunRe
 
   report.durationMs = Date.now() - startedAt;
   report.finishedAt = new Date().toISOString();
+  report.sessionId = sessionId || undefined;
   recordEvent(runId, "run_end", { endReason: report.endReason, blocks: report.blocks.length, harness: "claude" }, Date.now(), "claude");
   try {
     writePrivateFile(report.reportPath, JSON.stringify(report, null, 2));

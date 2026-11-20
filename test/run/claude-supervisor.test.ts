@@ -57,6 +57,15 @@ describe("claude headless supervision (stream-json driver)", () => {
     expect(rows[0]!.tool_name).toBe("Read");
   }, 20000);
 
+  it("writes harness, sessionId and startedAtMs into report.json", async () => {
+    const r = await run("read the readme", "ok");
+    const report = JSON.parse(fs.readFileSync(r.reportPath, "utf8")) as Record<string, unknown>;
+    expect(report.harness).toBe("claude");
+    expect(report.sessionId).toBe("fake-claude-sess-1");
+    expect(typeof report.startedAtMs).toBe("number");
+    expect(report.startedAtMs).toBeGreaterThan(0);
+  }, 20000);
+
   it("hooks live: the driver does not duplicate call rows; hook blocks merge into the report", async () => {
     const settings = path.join(tmp, "settings.json");
     process.env.CLAUDE_SETTINGS_PATH = settings;
