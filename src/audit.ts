@@ -404,6 +404,14 @@ export function buildAudit(opts: { session?: string; sinceMs?: number; harness?:
     });
   }
 
+  // Windows keeps the SQLite file locked while the handle is open; close it
+  // before returning so callers (and tests) can remove the temp dir.
+  try {
+    db?.close();
+  } catch {
+    /* best effort */
+  }
+
   return {
     generatedAt: now,
     scope: { session: opts.session, sinceMs: windowMs, harness },
