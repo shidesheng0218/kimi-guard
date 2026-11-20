@@ -112,6 +112,7 @@ kguard config init|show|get <key> # 管理 ~/.kimi-guard/config.toml
 agentguard watch        # 实时 TUI：跨 harness 会话、拦截流、配额水位
 agentguard replay [run] # 已录制运行的时间轴回放（拦截高亮）
 agentguard bench        # 公开基准：病理场景 × 守卫打分
+agentguard audit        # 本地配额取证：燃烧时间线、归因、重试、运行 token
 ```
 
 ### `kguard run` — 受监督的无人值守运行
@@ -203,6 +204,23 @@ Webhook 通道给没有桌面的 headless 环境用。每个事件一次 POST，
 ### 阈值档位
 
 `profile = "balanced" | "strict" | "chill"`（配置文件 / `--profile` / `AGENT_GUARD_PROFILE`)。balanced 是出厂默认；strict 提前介入（无人值守）;chill 最大放手。你的显式配置永远最高优先。`agentguard calibrate` 从误报反馈给出逐检测器调整建议（只打印 TOML，不改配置）,`calibrate --apply` 一键采纳豁免项（先备份）。
+
+## 配额审计——配额到底花在哪了？
+
+`agentguard audit` **只读**本地状态库，解释一个时间窗内的消耗：15 分钟燃烧时间线、会话/agent/工具归因、重试信号、受监督运行的 token 明细，以及确定性 findings。
+
+```sh
+agentguard audit                          # 最近 24h，文本
+agentguard audit --since 7d --md          # 可转发的 Markdown
+agentguard audit --session <id> --json     # 单会话（含子 agent）
+```
+
+- **构造上只读**：不建库、不迁移、不写入。守卫从未使用时输出零报告并提示 `guard-inactive`，而不是创建一个空文件。
+- **观测 / 估算 / 推断分开**：调用、turn、subagent 派发、拦截、重试、会话/agent 归因是观测；请求燃烧与 5h 投影是估算；subagent 加权占比与 cache 放大解释是推断。每份报告都打印这三组。
+- **token 明细需要受监督运行**：hooks-only 模式只能看到工具调用与输出，看不到逐轮 cache token。cache read/creation 与 `cache-amplification` 来自 `agentguard run` 的报告，报告会明确说明。
+- **calls/blocks 是全 harness**（它们没有 harness 列）；turn/subagent/retry 可用 `--harness` 限定。
+
+`audit` 报告成功退出码为 0，仅参数错误为 1；不联网。
 
 ## 配置
 

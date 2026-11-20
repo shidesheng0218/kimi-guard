@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Quota audit
+
+- New `agentguard audit [--session <id>] [--since 24h|7d|30d] [--harness name] [--json|--md]`: a read-only local forensic report with a 15-minute burn timeline, session/agent/tool attribution, retry signals, supervised-run token detail, and deterministic findings. It opens the state DB read-only, never creates or migrates it, and labels observed vs estimated vs inferred data.
+- Subagent sessions (`<parent>|sub|<agent>`) collapse into the parent session and are attributed to the agent; `--session` includes them.
+- `stall` watchdog events are now recorded in the state DB, so audits can report historical silence.
+- Supervised run reports now carry `harness`, `sessionId` and `startedAtMs`; older reports remain readable and are counted as `runsUnlinked` when a session scope cannot be established.
+
 - 🔒 **Project config trust boundary** — a repo-level `.agentguard.toml` may tune thresholds, but it can no longer redirect credential-bearing network calls: `[notify]`, `[verify.veto]`, `budget.precise` and `budget.preciseUrl` are ignored from project files (user-config only). `agentguard status` lists ignored keys. Closes a cloned-repository route to exfiltrating `KIMI_API_KEY`.
 - 🐛 **Recovery calls are no longer blocked** — noGain / churn / cycle / nearRepeat now only block the call that continues the pattern; a different tool, a read, or a different file is allowed, so the agent can act on the correction instead of being locked out. Near-duplicate matching is also key-order tolerant.
 - 🐛 **Hooks-live supervised runs** — the Claude/Codex drivers no longer double-record calls when hooks are installed, and blocks recorded by the hooks are merged into the run report. `agentguard run` now exits 2 whenever an intervention occurred, matching the documented CI semantics.
