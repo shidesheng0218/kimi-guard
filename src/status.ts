@@ -13,6 +13,7 @@ import { budgetSnapshot, formatSnapshot } from "./meter.js";
 import { vetoKeyConfigured } from "./veto.js";
 import { preciseKeyConfigured } from "./precise.js";
 import { ensurePrivateDir } from "./fsSecure.js";
+import { detectKimiBoost, type RelatedToolStatus } from "./related.js";
 
 function ok(msg: string): void {
   console.log(`${pc.green("✓")} ${msg}`);
@@ -24,6 +25,17 @@ function warn(msg: string): void {
 
 function fail(msg: string): void {
   console.log(`${pc.red("✗")} ${msg}`);
+}
+
+/**
+ * Coexistence is informational: report the install-time preset tool when it is
+ * present, stay silent when it is not. Never a warning — the two tools are
+ * independent.
+ */
+export function kimiBoostCoexistenceMessage(r: RelatedToolStatus): string | null {
+  if (r.active) return "coexistence: kimi-boost detected (install-time presets; complementary)";
+  if (r.present) return "coexistence: kimi-boost installed (hooks not detected)";
+  return null;
 }
 
 /** Config knob to raise when a detector misfires too often. */
@@ -135,6 +147,10 @@ export function cmdStatus(): void {
   const normalizeMisses = Number(getMeta("normalize_misses") ?? "0");
   console.log(`${pc.bold(pc.magentaBright("◆ agent-guard status"))} ${pc.dim(`(state: ${stateDbPath()})`)}`);
   console.log(`  ${pc.dim("profile:")}             ${pc.bold(cfg.profile)}`);
+  const boost = detectKimiBoost();
+  console.log(
+    `  ${pc.dim("install-time presets:")} ${boost.active ? "kimi-boost detected" : boost.present ? "kimi-boost installed (hooks not detected)" : "kimi-boost not detected"}`,
+  );
   if (cfg.projectConfigPath) console.log(`  ${pc.dim("project config:")}     ${cfg.projectConfigPath}`);
   if (cfg.projectConfigIgnored && cfg.projectConfigIgnored.length > 0) {
     console.log(
@@ -267,13 +283,8 @@ export function cmdDoctor(): number {
     console.log(`  ${pc.dim("-")} gemini not detected (skipped)`);
   }
 
-  const kimiConfigText = fs.existsSync(kimi.path) ? fs.readFileSync(kimi.path, "utf8") : "";
-  const hasSecurityLayer = /kimi-boost managed|destructive|secret-guard|branch-guard|block-dangerous/i.test(kimiConfigText);
-  if (hasSecurityLayer) {
-    ok("security-layer hooks detected (authorization axis covered)");
-  } else {
-    warn("no security-layer hooks detected — agent-guard covers runtime behavior only (authorization axis). Consider kimi-boost presets: npx kimi-boost install");
-  }
+  const boostMsg = kimiBoostCoexistenceMessage(detectKimiBoost());
+  if (boostMsg) ok(boostMsg);
 
   const which = spawnSync("agentguard", ["--version"], { encoding: "utf8" });
   check(

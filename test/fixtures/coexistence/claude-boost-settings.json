@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\x\\.kimi-boost\\hooks\\core\\protect-main.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

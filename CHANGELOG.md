@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Boundary with kimi-boost, and coexistence detection
+
+- New [`docs/relationship.md`](docs/relationship.md) states the split: agent-guard supervises runtime behavior; [kimi-boost](https://github.com/shidesheng0218/kimi-boost) installs static presets and guardrails at install time. Both work standalone and can be installed in any order.
+- `agentguard doctor` now reports kimi-boost as an informational coexistence line (`detected` or `installed (hooks not detected)`) and stays silent when it is absent. The previous `no security-layer hooks detected — consider kimi-boost` warning is removed: the tools are independent, and not installing one is never an error for the other.
+- `agentguard status` shows an `install-time presets` line for the same detection.
+
 - 🔒 **Project config trust boundary** — a repo-level `.agentguard.toml` may tune thresholds, but it can no longer redirect credential-bearing network calls: `[notify]`, `[verify.veto]`, `budget.precise` and `budget.preciseUrl` are ignored from project files (user-config only). `agentguard status` lists ignored keys. Closes a cloned-repository route to exfiltrating `KIMI_API_KEY`.
 - 🐛 **Recovery calls are no longer blocked** — noGain / churn / cycle / nearRepeat now only block the call that continues the pattern; a different tool, a read, or a different file is allowed, so the agent can act on the correction instead of being locked out. Near-duplicate matching is also key-order tolerant.
 - 🐛 **Hooks-live supervised runs** — the Claude/Codex drivers no longer double-record calls when hooks are installed, and blocks recorded by the hooks are merged into the run report. `agentguard run` now exits 2 whenever an intervention occurred, matching the documented CI semantics.
