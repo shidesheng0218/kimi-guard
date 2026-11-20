@@ -202,6 +202,16 @@ function readRuns(sinceMs: number, now: number, session?: string): { runs: Audit
   return { runs, unlinked };
 }
 
+function tableHasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  try {
+    return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some((r) => r.name === column);
+  } catch {
+    return false;
+  }
+}
+
+const SESSION_EVENT_KINDS = new Set(["turn", "subagent", "compaction", "step_retry", "stop_failure", "interrupt", "stall", "prompt"]);
+
 export function buildAudit(opts: { session?: string; sinceMs?: number; harness?: string; now?: number } = {}): AuditReport {
   const now = opts.now ?? Date.now();
   const windowMs = opts.sinceMs ?? 86_400_000;
@@ -209,14 +219,27 @@ export function buildAudit(opts: { session?: string; sinceMs?: number; harness?:
   const cfg = loadConfig();
   const harness = opts.harness ?? cfg.harness;
   const db = openAuditDb();
+  let dbProblem: string | undefined;
+  let hasHarness = true;
 
   const calls: CallRow[] = [];
   const events: EventRow[] = [];
   const blocks: BlockRow[] = [];
   if (db) {
-    calls.push(...query<CallRow>(db, "SELECT session_id, tool_name, ts FROM calls WHERE ts >= ?", since));
-    events.push(...query<EventRow>(db, "SELECT session_id, kind, meta_json, ts, harness FROM events WHERE ts >= ?", since));
-    blocks.push(...query<BlockRow>(db, "SELECT session_id, tool_name, kind, ts FROM blocks WHERE ts >= ?", since));
+    hasHarness = tableHasColumn(db, "events", "harness");
+    try {
+      calls.push(...query<CallRow>(db, "SELECT session_id, tool_name, ts FROM calls WHERE ts >= ?", since));
+      const harnessColumn = hasHarness ? "harness" : "'kimi' AS harness";
+      events.push(
+        ...query<EventRow>(db, `SELECT session_id, kind, meta_json, ts, ${harnessColumn} FROM events WHERE ts >= ?`, since),
+      );
+      blocks.push(...query<BlockRow>(db, "SELECT session_id, tool_name, kind, ts FROM blocks WHERE ts >= ?", since));
+    } catch (err) {
+      dbProblem = err instanceof Error ? err.message : String(err);
+      calls.length = 0;
+      events.length = 0;
+      blocks.length = 0;
+    }
   }
   const scopedCalls = calls.filter((c) => inScope(c.session_id, opts.session));
   const scopedEvents = events.filter((e) => inScope(e.session_id, opts.session));
@@ -269,8 +292,6 @@ export function buildAudit(opts: { session?: string; sinceMs?: number; harness?:
   };
 
   for (const e of scopedEvents) {
-    const row = rowFor(e.session_id);
-    row.lastTs = Math.max(row.lastTs, e.ts);
     if (e.harness) {
       const h = harnessMap.get(e.harness) ?? { turns: 0, subagents: 0 };
       if (e.kind === "turn") h.turns++;
@@ -278,6 +299,11 @@ export function buildAudit(opts: { session?: string; sinceMs?: number; harness?:
       harnessMap.set(e.harness, h);
     }
     if (e.harness !== harness) continue;
+    // Lifecycle events recorded under a run id (run_start/run_end/cost/...)
+    // must not create phantom sessions; only real session activity does.
+    if (!SESSION_EVENT_KINDS.has(e.kind)) continue;
+    const row = rowFor(e.session_id);
+    row.lastTs = Math.max(row.lastTs, e.ts);
 
     if (e.kind === "turn") {
       turns++;
@@ -339,9 +365,14 @@ export function buildAudit(opts: { session?: string; sinceMs?: number; harness?:
   const blocksByKind = [...blocksByKindMap.entries()].map(([kind, n]) => ({ kind, n }));
   const { runs, unlinked } = readRuns(since, now, opts.session);
 
-  const budget = db
-    ? budgetSnapshot(cfg.budget, harness, now, opts.session, db)
-    : emptyBudget(harness);
+  let budget: BudgetSnapshot = emptyBudget(harness);
+  if (db && !dbProblem) {
+    try {
+      budget = budgetSnapshot(cfg.budget, harness, now, opts.session, db, hasHarness);
+    } catch (err) {
+      dbProblem = err instanceof Error ? err.message : String(err);
+    }
+  }
   const totals: AuditTotals = {
     sessions: sessions.length,
     calls: scopedCalls.length,
@@ -364,6 +395,14 @@ export function buildAudit(opts: { session?: string; sinceMs?: number; harness?:
     stalls,
     blocksByKind,
   });
+  if (dbProblem) {
+    findings.push({
+      id: "db-unreadable",
+      severity: "warn",
+      evidence: dbProblem.slice(0, 160),
+      advice: "The state DB could not be read as expected. Run 'agentguard doctor' and check the DB path and permissions.",
+    });
+  }
 
   return {
     generatedAt: now,
@@ -472,6 +511,9 @@ export function auditToMarkdown(r: AuditReport): string {
     `# agentguard audit · last ${humanDuration(r.scope.sinceMs)}`,
     "",
     `_events harness=${r.scope.harness}; calls/blocks are all harnesses; budget=${r.budget.precise ? "precise" : "estimate"}_`,
+  ];
+  if (r.scope.session) lines.push("", `**session:** \`${r.scope.session}\` (includes subagents)`);
+  lines.push(
     "",
     "| metric | value |",
     "|---|---|",
@@ -481,7 +523,42 @@ export function auditToMarkdown(r: AuditReport): string {
     `| blocks | ${t.blocks} |`,
     `| sessions | ${t.sessions} |`,
     `| 5h / weekly | ${r.budget.fiveHour.percent}% / ${r.budget.weekly.percent}% |`,
-  ];
+  );
+
+  const shown = r.timeline.filter((b) => b.turns || b.subagents || b.blocks).slice(-24);
+  if (shown.length > 0) {
+    lines.push("", "## timeline", "", "| bucket | turns | subagents | blocks |", "|---|---|---|---|");
+    for (const b of shown) lines.push(`| ${clock(b.start)} | ${b.turns} | ${b.subagents} | ${b.blocks} |`);
+  }
+
+  if (r.sessions.length > 0) {
+    lines.push("", "## sessions", "", "| session | turns | calls | subagent calls | blocks |", "|---|---|---|---|---|");
+    for (const s of r.sessions.slice(0, 10)) {
+      lines.push(`| ${s.sessionId} | ${s.turns} | ${s.calls} | ${s.subagentCalls} | ${s.blocks} |`);
+    }
+  }
+
+  lines.push("", "## attribution", "");
+  lines.push(`- agents: ${r.agents.length ? r.agents.map((a) => `${a.agent}×${a.dispatches}/${a.calls}`).join(" · ") : "none"}`);
+  lines.push(`- tools: ${r.tools.length ? r.tools.slice(0, 8).map((x) => `${x.tool}×${x.calls}`).join(" · ") : "none"}`);
+  lines.push(
+    `- retries: step_retry ${r.retries.stepRetries} · stop_failure ${r.retries.stopFailures} · interrupt ${r.retries.interrupts}`,
+  );
+
+  lines.push("", "## supervised runs", "");
+  if (r.runs.length > 0) {
+    lines.push("| run | harness | end | tokens in | cache read | cache ratio | out |", "|---|---|---|---|---|---|---|");
+    for (const run of r.runs) {
+      const ratio = run.cacheRatio === null ? "n/a" : `${run.cacheRatio.toFixed(1)}x`;
+      lines.push(
+        `| ${run.runId} | ${run.harness} | ${run.endReason} | ${run.tokens.inputOther} | ${run.tokens.cacheRead} | ${ratio} | ${run.tokens.output} |`,
+      );
+    }
+  } else {
+    lines.push("_none (hooks-only mode has no token detail)_");
+  }
+  if (r.runsUnlinked > 0) lines.push("", `_runs without session linkage: ${r.runsUnlinked} (excluded from session scope)_`);
+
   if (r.findings.length > 0) {
     lines.push("", "## findings", "");
     for (const f of r.findings) lines.push(`- **${f.id}** (${f.severity}): ${f.evidence} — ${f.advice}`);

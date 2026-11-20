@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { auditToMarkdown, buildAudit, formatAudit } from "../src/audit.js";
 import { openDb, recordBlock, recordCall, recordEvent, resetDbForTests } from "../src/store.js";
-import { guardHome } from "../src/paths.js";
+import { guardHome, stateDbPath } from "../src/paths.js";
 
 let tmp: string;
 let now: number;
@@ -163,13 +164,55 @@ describe("buildAudit", () => {
     expect(JSON.parse(rows[0]!.meta_json).idleMs).toBeGreaterThanOrEqual(10 * MIN);
   });
 
+  it("reads a pre-v6 DB without a harness column", () => {
+    const db = new DatabaseSync(stateDbPath());
+    db.exec(`
+      CREATE TABLE calls (session_id TEXT, tool_name TEXT, ts INTEGER);
+      CREATE TABLE events (session_id TEXT, kind TEXT, meta_json TEXT, ts INTEGER);
+      CREATE TABLE blocks (session_id TEXT, tool_name TEXT, kind TEXT, ts INTEGER);
+      CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT);
+      INSERT INTO calls VALUES ('legacy', 'Read', ${now - 60 * MIN});
+      INSERT INTO events VALUES ('legacy', 'turn', '{}', ${now - 60 * MIN});
+    `);
+    db.close();
+    const r = buildAudit({ now, sinceMs: 2 * HOUR });
+    expect(r.totals.calls).toBe(1);
+    expect(r.totals.turns).toBe(1);
+    expect(r.findings.some((f) => f.id === "db-unreadable")).toBe(false);
+  });
+
+  it("returns a db-unreadable finding instead of throwing on a broken DB", () => {
+    const db = new DatabaseSync(stateDbPath());
+    db.exec("CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT);");
+    db.close();
+    expect(() => buildAudit({ now, sinceMs: 2 * HOUR })).not.toThrow();
+    const r = buildAudit({ now, sinceMs: 2 * HOUR });
+    expect(r.findings.some((f) => f.id === "db-unreadable")).toBe(true);
+  });
+
+  it("does not count lifecycle-only or other-harness events as sessions", () => {
+    call("claude-sid", "Read", now - 60 * MIN);
+    event("run-abc", "run_start", now - 59 * MIN, {}, "claude");
+    event("run-abc", "run_end", now - 58 * MIN, {}, "claude");
+    event("kimi-only", "cost", now - 57 * MIN, {}, "kimi");
+    const r = buildAudit({ now, sinceMs: 2 * HOUR, harness: "claude" });
+    expect(r.totals.sessions).toBe(1);
+    expect(r.sessions.map((s) => s.sessionId)).toEqual(["claude-sid"]);
+  });
+
   it("formatAudit and auditToMarkdown render the same totals", () => {
     seedMain();
+    writeRun("run-fixture-1", { startedAtMs: now - 10 * MIN, sessionId: "parent1" });
     const r = buildAudit({ now, sinceMs: 2 * HOUR });
     expect(formatAudit(r)).toContain("agentguard audit");
     expect(formatAudit(r)).toContain("last 2h");
     expect(formatAudit(r)).toContain("provenance");
-    expect(auditToMarkdown(r)).toContain("# agentguard audit");
-    expect(auditToMarkdown(r)).toContain("| calls | 2 (1 subagent) |");
+    const md = auditToMarkdown(r);
+    expect(md).toContain("# agentguard audit");
+    expect(md).toContain("| calls | 2 (1 subagent) |");
+    expect(md).toContain("## timeline");
+    expect(md).toContain("## supervised runs");
+    expect(md).toContain("run-fixture-1");
+    expect(md).toContain("cache");
   });
 });

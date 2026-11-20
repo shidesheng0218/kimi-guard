@@ -92,12 +92,13 @@ export function budgetSnapshot(
   now = Date.now(),
   scopeSessionId?: string,
   db?: DatabaseSync,
+  hasHarness = true,
 ): BudgetSnapshot {
   const scoped = scopeSessionId !== undefined;
   const count = (kinds: string[], since: number): number =>
-    scoped ? countEvents(scopeSessionId!, kinds, since, db) : countEventsForHarness(harness, kinds, since, db);
+    scoped ? countEvents(scopeSessionId!, kinds, since, db) : countEventsForHarness(harness, kinds, since, db, hasHarness);
   const oldest = (kinds: string[], since: number): number | null =>
-    scoped ? oldestEventTs(scopeSessionId!, kinds, since, db) : oldestEventTsForHarness(harness, kinds, since, db);
+    scoped ? oldestEventTs(scopeSessionId!, kinds, since, db) : oldestEventTsForHarness(harness, kinds, since, db, hasHarness);
 
   const turns = count(["turn"], now - HOUR);
   const subagents = count(["subagent"], now - HOUR);
