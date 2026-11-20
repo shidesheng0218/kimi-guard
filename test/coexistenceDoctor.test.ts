@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { cmdDoctor, kimiBoostCoexistenceMessage } from "../src/status.js";
 import { installHooks } from "../src/installer.js";
+import { resetDbForTests } from "../src/store.js";
 
 const ENV_KEYS = ["AGENT_GUARD_HOME", "KIMI_GUARD_HOME", "KIMI_BOOST_HOME", "KIMI_CONFIG_PATH", "CLAUDE_SETTINGS_PATH", "CODEX_HOME", "CODEX_HOOKS_PATH", "GEMINI_SETTINGS_PATH"] as const;
 
@@ -38,6 +39,9 @@ afterEach(() => {
     else process.env[k] = v;
   }
   vi.restoreAllMocks();
+  // Windows keeps the SQLite file locked while the cached handle is open;
+  // close it before removing the temp dir.
+  resetDbForTests();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
