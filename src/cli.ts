@@ -19,6 +19,7 @@ import { budgetSnapshot, formatSnapshot, resolveLimits, PLANS } from "./meter.js
 import { refreshPreciseUsage } from "./precise.js";
 import { runSupervised, formatReport } from "./wire/supervisor.js";
 import { buildCalibrateReport, formatCalibrateReport, applyCalibrate } from "./calibrate.js";
+import { buildAudit, formatAudit, auditToMarkdown } from "./audit.js";
 import { menubarText, installMenubar } from "./menubar.js";
 import { notify } from "./notify.js";
 import { buildDigest, formatDigest, formatDigestMarkdown } from "./digest.js";
@@ -296,6 +297,33 @@ program
     }
     console.log(`  budget: ${report.budget.plan}${report.budget.precise ? " (precise)" : ""}  5h=${report.budget.fiveHourPercent}%  weekly=${report.budget.weeklyPercent}%`);
     console.log("  (aggregate only — no arguments, paths or commands are included)");
+  });
+
+const SINCE_WINDOWS: Record<string, number> = {
+  "24h": 86_400_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+};
+
+program
+  .command("audit")
+  .description("local quota forensics: burn timeline, session/agent attribution, retries, supervised-run tokens")
+  .option("--session <id>", "scope to one session (includes its subagents)")
+  .option("--since <window>", "24h | 7d | 30d (default 24h)", "24h")
+  .option("--harness <name>", "event scope harness (default: configured harness)")
+  .option("--json", "print machine-readable JSON")
+  .option("--md", "print Markdown")
+  .action((opts: { session?: string; since?: string; harness?: string; json?: boolean; md?: boolean }) => {
+    const windowMs = SINCE_WINDOWS[opts.since ?? "24h"];
+    if (!windowMs) {
+      console.error(`invalid --since '${opts.since}' (use 24h, 7d, 30d)`);
+      process.exitCode = 1;
+      return;
+    }
+    const report = buildAudit({ session: opts.session, sinceMs: windowMs, harness: opts.harness });
+    if (opts.json) console.log(JSON.stringify(report, null, 2));
+    else if (opts.md) process.stdout.write(auditToMarkdown(report));
+    else console.log(formatAudit(report));
   });
 
 program

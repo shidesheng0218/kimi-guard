@@ -396,7 +396,8 @@ function humanDuration(ms: number): string {
   const m = Math.round(ms / 60_000);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
-  return `${h}h${String(m % 60).padStart(2, "0")}m`;
+  const rem = m % 60;
+  return rem === 0 ? `${h}h` : `${h}h${String(rem).padStart(2, "0")}m`;
 }
 
 export function formatAudit(r: AuditReport): string {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { auditToMarkdown, buildAudit, formatAudit } from "../src/audit.js";
-import { recordBlock, recordCall, recordEvent, resetDbForTests } from "../src/store.js";
+import { openDb, recordBlock, recordCall, recordEvent, resetDbForTests } from "../src/store.js";
 import { guardHome } from "../src/paths.js";
 
 let tmp: string;
@@ -149,6 +149,18 @@ describe("buildAudit", () => {
     expect(r.retries.maxIn30Min).toBe(5);
     expect(r.findings.some((f) => f.id === "retry-storm")).toBe(true);
     expect(r.findings.some((f) => f.id === "stall-signal")).toBe(true);
+  });
+
+  it("records a stall event when a session resumes after the threshold", async () => {
+    const { processHookEvent } = await import("../src/guard.js");
+    const { defaultConfig } = await import("../src/config.js");
+    const cfg = { ...defaultConfig, stall: { enabled: true, minutes: 10 } };
+    const t0 = now - 20 * MIN;
+    processHookEvent("PostToolUse", cfg, { session_id: "stall-session" }, t0);
+    processHookEvent("PreToolUse", cfg, { session_id: "stall-session" }, t0 + 11 * MIN);
+    const rows = openDb().prepare("SELECT meta_json FROM events WHERE kind = 'stall'").all() as Array<{ meta_json: string }>;
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]!.meta_json).idleMs).toBeGreaterThanOrEqual(10 * MIN);
   });
 
   it("formatAudit and auditToMarkdown render the same totals", () => {

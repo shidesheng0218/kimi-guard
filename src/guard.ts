@@ -94,6 +94,7 @@ export function processHookEvent(event: string, cfg: GuardConfig, payload: HookP
       setSessionMeta(sessionId, "last_event", event);
       const idleMs = now - prevTs;
       if (prevTs > 0 && STALL_SUSPICIOUS_AFTER.has(prevEvent) && idleMs >= cfg.stall.minutes * 60_000) {
+        recordEvent(sessionId, "stall", { idleMs, lastEvent: prevEvent }, now, cfg.harness);
         notify(cfg, "🛡️ agent-guard", `session resumed after ${Math.round(idleMs / 60_000)}m of silence (last: ${prevEvent}) — it may have been stalled`, { event: "stall", session: sessionId });
       }
     } catch {
